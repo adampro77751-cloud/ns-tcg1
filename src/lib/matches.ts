@@ -46,6 +46,53 @@ export async function createMatchWithJoinCode(params: {
   throw new Error("Failed to generate a unique join code.");
 }
 
+// Creates the NEXT round of an event's best-of-X series with both players
+// already attached and IN_PROGRESS immediately — used only for
+// auto-continuation (round 2+), reusing each player's deck/Sprite from the
+// round that just finished, so nobody has to re-pick anything. Round 1
+// still goes through the normal one-at-a-time create/join flow (see
+// createMatchWithJoinCode), since there's no prior round to carry over
+// choices from.
+export async function createNextEventRoundMatch(params: {
+  eventId: string;
+  formatId: string;
+  players: {
+    userId: string;
+    deckId: string;
+    spriteInstanceId: string | null;
+  }[];
+}) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const joinCode = generateJoinCode();
+    try {
+      return await prisma.match.create({
+        data: {
+          joinCode,
+          formatId: params.formatId,
+          eventId: params.eventId,
+          isPrivate: true,
+          status: "IN_PROGRESS",
+          startedAt: new Date(),
+          players: {
+            create: params.players.map((p) => ({
+              userId: p.userId,
+              deckId: p.deckId,
+              spriteInstanceId: p.spriteInstanceId,
+            })),
+          },
+        },
+      });
+    } catch (err) {
+      const isCollision =
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002" &&
+        (err.meta?.target as string[] | undefined)?.includes("joinCode");
+      if (!isCollision) throw err;
+    }
+  }
+  throw new Error("Failed to generate a unique join code.");
+}
+
 export function getMatchDetails(matchId: string) {
   return prisma.match.findUnique({
     where: { id: matchId },

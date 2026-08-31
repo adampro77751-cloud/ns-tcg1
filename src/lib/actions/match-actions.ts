@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireOwnedLegalDeck } from "@/lib/decks";
-import { createMatchWithJoinCode } from "@/lib/matches";
+import { createMatchWithJoinCode, createNextEventRoundMatch } from "@/lib/matches";
 import { normalizeJoinCode } from "@/lib/join-code";
 import { awardMatchXp, awardEventXp } from "@/lib/sprite-progression";
 import { resolveOwnedSpriteInstance } from "@/lib/sprite-ownership";
@@ -220,7 +220,7 @@ export async function confirmResultAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   await requireParticipant(matchId, session.user.id);
 
-  await prisma.$transaction(async (tx) => {
+  const outcome = await prisma.$transaction(async (tx) => {
     // Atomic guard: only affects a PENDING result submitted by the OTHER
     // player — a submitter can never confirm their own claim, and a result
     // can only ever transition to CONFIRMED once.
@@ -259,7 +259,9 @@ export async function confirmResultAction(formData: FormData) {
       select: {
         eventId: true,
         format: { select: { name: true } },
-        players: { select: { userId: true, spriteInstanceId: true } },
+        players: {
+          select: { userId: true, deckId: true, spriteInstanceId: true },
+        },
       },
     });
 
@@ -289,53 +291,107 @@ export async function confirmResultAction(formData: FormData) {
     // whether the series is now decided and, if so, complete the event
     // and award event XP — same atomic-transition + xpAwardedAt guard
     // pattern as declareWinnerAction, so this can never double-fire even
-    // if a future round were somehow confirmed again.
-    if (matchWithPlayers.eventId) {
-      const event = await tx.event.findUniqueOrThrow({
-        where: { id: matchWithPlayers.eventId },
-        select: {
-          id: true,
-          bestOf: true,
-          status: true,
-          xpAwardedAt: true,
-          format: { select: { name: true } },
-          players: { select: { userId: true, spriteInstanceId: true } },
-        },
-      });
-      if (event.bestOf && event.status === "IN_PROGRESS") {
-        const roundWins = await getEventRoundWins(event.id, tx);
-        const target = matchesToWinFor(event.bestOf);
-        const seriesWinnerId = event.players
-          .map((p) => p.userId)
-          .find((userId) => (roundWins[userId] ?? 0) >= target);
-
-        if (seriesWinnerId) {
-          const updatedEvent = await tx.event.updateMany({
-            where: { id: event.id, status: "IN_PROGRESS" },
-            data: {
-              status: "COMPLETED",
-              winnerId: seriesWinnerId,
-              finishedAt: new Date(),
-            },
-          });
-          if (updatedEvent.count > 0 && !event.xpAwardedAt) {
-            await awardEventXp(tx, {
-              eventId: event.id,
-              formatName: event.format.name,
-              winnerUserId: seriesWinnerId,
-              participants: event.players,
-            });
-            await tx.event.update({
-              where: { id: event.id },
-              data: { xpAwardedAt: new Date() },
-            });
-          }
-        }
-      }
+    // if a future round were somehow confirmed again. If the series isn't
+    // decided yet, the next round is auto-created AFTER this transaction
+    // commits (see below) — it involves its own join-code retry loop,
+    // which shouldn't happen inside this transaction.
+    if (!matchWithPlayers.eventId) {
+      return { eventId: null as string | null, seriesCompleted: false };
     }
+
+    const event = await tx.event.findUniqueOrThrow({
+      where: { id: matchWithPlayers.eventId },
+      select: {
+        id: true,
+        bestOf: true,
+        status: true,
+        xpAwardedAt: true,
+        formatId: true,
+        format: { select: { name: true } },
+        players: { select: { userId: true, spriteInstanceId: true } },
+      },
+    });
+    if (!event.bestOf || event.status !== "IN_PROGRESS") {
+      return { eventId: event.id, seriesCompleted: false };
+    }
+
+    const roundWins = await getEventRoundWins(event.id, tx);
+    const target = matchesToWinFor(event.bestOf);
+    const seriesWinnerId = event.players
+      .map((p) => p.userId)
+      .find((userId) => (roundWins[userId] ?? 0) >= target);
+
+    if (!seriesWinnerId) {
+      // Series continues — hand back what's needed to auto-create the
+      // next round with the same deck/Sprite each player just used.
+      return {
+        eventId: event.id,
+        seriesCompleted: false,
+        formatId: event.formatId,
+        roundPlayers: matchWithPlayers.players,
+      };
+    }
+
+    const updatedEvent = await tx.event.updateMany({
+      where: { id: event.id, status: "IN_PROGRESS" },
+      data: {
+        status: "COMPLETED",
+        winnerId: seriesWinnerId,
+        finishedAt: new Date(),
+      },
+    });
+    if (updatedEvent.count > 0 && !event.xpAwardedAt) {
+      // Use the Sprites equipped in THIS deciding round (matchWithPlayers),
+      // not EventPlayer.spriteInstanceId — for a series, Sprite is chosen
+      // per round on MatchPlayer, not once at event join, and the
+      // organiser in particular never sets EventPlayer.spriteInstanceId at
+      // all (they're auto-added when the event is created).
+      await awardEventXp(tx, {
+        eventId: event.id,
+        formatName: event.format.name,
+        winnerUserId: seriesWinnerId,
+        participants: matchWithPlayers.players,
+      });
+      await tx.event.update({
+        where: { id: event.id },
+        data: { xpAwardedAt: new Date() },
+      });
+    }
+    return { eventId: event.id, seriesCompleted: true };
   });
 
   revalidatePath(`/play/${matchId}`);
+
+  if (outcome.seriesCompleted && outcome.eventId) {
+    revalidatePath(`/events/${outcome.eventId}`);
+    redirect(`/events/${outcome.eventId}`);
+  }
+
+  // Series continues: try to auto-create the next round using the same
+  // deck/Sprite each player just used. Deck legality is re-checked fresh
+  // (contents can change between rounds) — if either player's deck is no
+  // longer legal, this is skipped and the event page falls back to its
+  // manual "Start next round" form instead of silently failing.
+  if (outcome.eventId && !outcome.seriesCompleted && outcome.roundPlayers) {
+    try {
+      for (const p of outcome.roundPlayers) {
+        await requireOwnedLegalDeck(p.deckId, p.userId);
+      }
+      await createNextEventRoundMatch({
+        eventId: outcome.eventId,
+        formatId: outcome.formatId!,
+        players: outcome.roundPlayers.map((p) => ({
+          userId: p.userId,
+          deckId: p.deckId,
+          spriteInstanceId: p.spriteInstanceId,
+        })),
+      });
+      revalidatePath(`/events/${outcome.eventId}`);
+    } catch {
+      // Leave it to the manual "Start next round" form on the event page.
+    }
+  }
+
   redirect(`/play/${matchId}`);
 }
 

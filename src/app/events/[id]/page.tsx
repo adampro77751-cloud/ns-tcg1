@@ -268,9 +268,57 @@ export default async function EventDetailPage({
 
       {event.status === "COMPLETED" && event.winner && (
         <div className="mt-6 rounded border border-green-200 bg-green-50 px-4 py-4">
-          <p className="text-sm text-green-900">
-            <strong>{event.winner.username}</strong> won this event.
+          <p className="text-base text-green-900">
+            🏆 <strong>{event.winner.username}</strong> won this event
+            {isSeries ? ` (best of ${event.bestOf})` : ""}!
           </p>
+
+          {isSeries && (
+            <>
+              <ul className="mt-3 flex flex-col gap-1.5">
+                {event.players.map((p) => (
+                  <li
+                    key={p.userId}
+                    className="flex items-center justify-between rounded border border-green-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <span>{p.user.username}</span>
+                    <span className="font-semibold">
+                      {roundWins[p.userId] ?? 0} round
+                      {(roundWins[p.userId] ?? 0) === 1 ? "" : "s"} won
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-green-800">
+                Rounds
+              </h3>
+              <ul className="mt-2 flex flex-col gap-1.5">
+                {event.matches.map((m, i) => {
+                  const winnerUsername =
+                    m.result?.status === "CONFIRMED"
+                      ? event.players.find((p) => p.userId === m.result?.winnerId)
+                          ?.user.username
+                      : null;
+                  return (
+                    <li key={m.id}>
+                      <Link
+                        href={`/play/${m.id}`}
+                        className="flex items-center justify-between rounded border border-green-100 bg-white px-3 py-2 text-sm hover:border-green-300"
+                      >
+                        <span>Round {i + 1}</span>
+                        <span className="text-zinc-600">
+                          {winnerUsername
+                            ? `${winnerUsername} won`
+                            : m.status.replace("_", " ")}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
         </div>
       )}
 
