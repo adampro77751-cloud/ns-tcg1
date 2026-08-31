@@ -1,0 +1,383 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ---------------------------------------------------------------------------
+// Accounts
+// ---------------------------------------------------------------------------
+
+enum Role {
+  USER
+  ADMIN
+}
+
+// Auth-relevant, private account data. Never expose passwordHash or email
+// through public APIs/pages.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile PlayerProfile?
+
+  ownedSprites   UserSprite[]
+  redeemedCodes  RedemptionCode[] @relation("RedeemedBy")
+  createdSpriteCodeBatches SpriteCodeBatch[]
+  decks          Deck[]
+  matchPlayers   MatchPlayer[]
+
+  wonMatches       MatchResult[] @relation("MatchWinner")
+  lostMatches      MatchResult[] @relation("MatchLoser")
+  submittedResults MatchResult[] @relation("SubmittedBy")
+  confirmedResults MatchResult[] @relation("ConfirmedBy")
+
+  organizedEvents Event[]       @relation("Organizer")
+  wonEvents       Event[]       @relation("EventWinner")
+  eventPlayers    EventPlayer[]
+}
+
+// Public-facing profile data, separate from auth/account data so it is safe
+// to join into public pages. Stats (wins/losses/etc.) are intentionally NOT
+// stored here — they are derived at query time from Match/MatchResult/Event
+// records, which are the single source of truth. This avoids counters ever
+// drifting out of sync and means a result can't accidentally get "applied"
+// twice.
+model PlayerProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName String?
+  bio         String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Cards & Sprites
+// ---------------------------------------------------------------------------
+
+model Card {
+  id         String   @id @default(cuid())
+  name       String
+  slug       String   @unique
+  set        String?
+  cardNumber String?
+  type       String?
+  rarity     String?
+  attack     Int?
+  defence    Int?
+  speed      Int?
+  rulesText  String?
+  image      String?
+  createdAt  DateTime @default(now())
+
+  deckCards        DeckCard[]
+  bannedInFormats      FormatBannedCard[]
+  restrictedInFormats  FormatRestrictedCard[]
+}
+
+model Sprite {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  rarity      String?
+  description String?
+  rulesText   String?
+  image       String?
+  set         String?
+  releaseDate DateTime?
+  createdAt   DateTime  @default(now())
+
+  owners          UserSprite[]
+  redemptionCodes RedemptionCode[]
+  codeBatches     SpriteCodeBatch[]
+}
+
+// A print/release edition of a Sprite (e.g. "1st Edition"). Kept as its own
+// model — rather than folded into Sprite.name or a free-text field — so the
+// same Sprite can have multiple editions over time (reprints, later sets)
+// without renaming or duplicating the Sprite row.
+model Edition {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  userSprites     UserSprite[]
+  redemptionCodes RedemptionCode[]
+  codeBatches     SpriteCodeBatch[]
+}
+
+// Ownership join table between User and Sprite+Edition. Quantity supports
+// the same Sprite+Edition being unlocked more than once (e.g. via multiple
+// redemption codes). Edition is part of the identity — owning "Fire Sprite,
+// 1st Edition" is tracked separately from a future "Fire Sprite, 2nd
+// Edition" would be.
+model UserSprite {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  spriteId   String
+  sprite     Sprite   @relation(fields: [spriteId], references: [id], onDelete: Cascade)
+  editionId  String
+  edition    Edition  @relation(fields: [editionId], references: [id])
+  quantity   Int      @default(1)
+  obtainedAt DateTime @default(now())
+
+  @@unique([userId, spriteId, editionId])
+  @@index([userId])
+}
+
+// A batch of RedemptionCodes generated together by an admin for a specific
+// Sprite + Edition print run, e.g. "Fire Sprite — 1st Edition, 100 codes".
+model SpriteCodeBatch {
+  id          String   @id @default(cuid())
+  spriteId    String
+  sprite      Sprite   @relation(fields: [spriteId], references: [id])
+  editionId   String
+  edition     Edition  @relation(fields: [editionId], references: [id])
+  quantity    Int
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  codes RedemptionCode[]
+
+  @@index([createdById])
+}
+
+// Redemption codes unlock a specific Sprite+Edition exactly once. `code` is
+// a securely randomly generated string (not sequential/guessable), unique
+// at the database level. Designed so a QR code can simply encode a URL like
+// /redeem?code=NS-XXXX-XXXX that lands on the same redemption flow — no
+// separate QR architecture needed.
+model RedemptionCode {
+  id           String    @id @default(cuid())
+  code         String    @unique
+  spriteId     String
+  sprite       Sprite    @relation(fields: [spriteId], references: [id])
+  editionId    String
+  edition      Edition   @relation(fields: [editionId], references: [id])
+  batchId      String
+  batch        SpriteCodeBatch @relation(fields: [batchId], references: [id])
+  redeemed     Boolean   @default(false)
+  redeemedById String?
+  redeemedBy   User?     @relation("RedeemedBy", fields: [redeemedById], references: [id])
+  redeemedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([redeemedById])
+  @@index([batchId])
+}
+
+// ---------------------------------------------------------------------------
+// Formats & Decks
+// ---------------------------------------------------------------------------
+
+// Format rules are data, not code. `allowedSets` is a JSON-encoded string
+// array (null/empty = all sets allowed); banned/restricted cards are proper
+// relations. The actual legality *evaluation* lives in reusable TS logic
+// (src/lib/legality.ts), not duplicated across UI components.
+model Format {
+  id               String   @id @default(cuid())
+  name             String   @unique
+  slug             String   @unique
+  description      String?
+  minDeckSize      Int
+  maxDeckSize      Int?
+  maxCopiesPerCard Int
+  allowedSets      String? // JSON string array, null = all sets allowed
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  bannedCards     FormatBannedCard[]
+  restrictedCards FormatRestrictedCard[]
+  decks           Deck[]
+  matches         Match[]
+  events          Event[]
+}
+
+model FormatBannedCard {
+  id       String @id @default(cuid())
+  formatId String
+  format   Format @relation(fields: [formatId], references: [id], onDelete: Cascade)
+  cardId   String
+  card     Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  reason   String?
+
+  @@unique([formatId, cardId])
+}
+
+// Restricted = legal but capped below the format's normal max-copies rule
+// (e.g. a 1-of "restricted list", in case NS TCG wants that later).
+model FormatRestrictedCard {
+  id        String @id @default(cuid())
+  formatId  String
+  format    Format @relation(fields: [formatId], references: [id], onDelete: Cascade)
+  cardId    String
+  card      Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  maxCopies Int
+
+  @@unique([formatId, cardId])
+}
+
+model Deck {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  formatId  String
+  format    Format   @relation(fields: [formatId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cards        DeckCard[]
+  matchPlayers MatchPlayer[]
+  eventPlayers EventPlayer[]
+
+  @@index([userId])
+}
+
+model DeckCard {
+  id       String @id @default(cuid())
+  deckId   String
+  deck     Deck   @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  cardId   String
+  card     Card   @relation(fields: [cardId], references: [id])
+  quantity Int    @default(1)
+
+  @@unique([deckId, cardId])
+}
+
+// ---------------------------------------------------------------------------
+// Matches
+// ---------------------------------------------------------------------------
+
+enum MatchStatus {
+  WAITING // created, waiting for an opponent to join
+  IN_PROGRESS // both players joined
+  AWAITING_CONFIRMATION // a result has been submitted, waiting on confirmation
+  COMPLETED
+  CANCELLED
+}
+
+model Match {
+  id         String      @id @default(cuid())
+  joinCode   String      @unique
+  formatId   String
+  format     Format      @relation(fields: [formatId], references: [id])
+  status     MatchStatus @default(WAITING)
+  createdAt  DateTime    @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  players MatchPlayer[]
+  result  MatchResult?
+}
+
+model MatchPlayer {
+  id       String   @id @default(cuid())
+  matchId  String
+  match    Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id])
+  deckId   String
+  deck     Deck     @relation(fields: [deckId], references: [id])
+  joinedAt DateTime @default(now())
+
+  @@unique([matchId, userId])
+  @@index([userId])
+}
+
+enum ResultStatus {
+  PENDING // submitted by one player, awaiting confirmation
+  CONFIRMED // confirmed by the other player — stats now count this match
+  DISPUTED // the other player rejected the submitted result
+}
+
+// Submit/confirm flow for result integrity: one player submits, the other
+// must confirm before it counts. A Match has at most one MatchResult
+// (1:1), and only a CONFIRMED result is ever counted in stats queries — so
+// there is no separate "already applied" flag to keep in sync.
+model MatchResult {
+  id            String       @id @default(cuid())
+  matchId       String       @unique
+  match         Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  winnerId      String
+  winner        User         @relation("MatchWinner", fields: [winnerId], references: [id])
+  loserId       String?
+  loser         User?        @relation("MatchLoser", fields: [loserId], references: [id])
+  submittedById String
+  submittedBy   User         @relation("SubmittedBy", fields: [submittedById], references: [id])
+  submittedAt   DateTime     @default(now())
+  confirmedById String?
+  confirmedBy   User?        @relation("ConfirmedBy", fields: [confirmedById], references: [id])
+  confirmedAt   DateTime?
+  status        ResultStatus @default(PENDING)
+
+  @@index([winnerId])
+  @@index([loserId])
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+enum EventStatus {
+  REGISTRATION // organiser can still accept joiners
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// Deliberately simple for v1 (organiser declares a winner once the event is
+// done) but structured so Swiss/elimination pairings & standings can be
+// layered on later without a schema rewrite: EventPlayer already tracks
+// per-player participation, and Match already supports being played inside
+// an event context via future FK — see notes in docs.
+model Event {
+  id          String      @id @default(cuid())
+  name        String
+  joinCode    String      @unique
+  organizerId String
+  organizer   User        @relation("Organizer", fields: [organizerId], references: [id])
+  formatId    String
+  format      Format      @relation(fields: [formatId], references: [id])
+  maxPlayers  Int
+  status      EventStatus @default(REGISTRATION)
+  createdAt   DateTime    @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  winnerId    String?
+  winner      User?       @relation("EventWinner", fields: [winnerId], references: [id])
+
+  players EventPlayer[]
+
+  @@index([organizerId])
+}
+
+model EventPlayer {
+  id       String   @id @default(cuid())
+  eventId  String
+  event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id])
+  deckId   String?
+  deck     Deck?    @relation(fields: [deckId], references: [id])
+  joinedAt DateTime @default(now())
+
+  @@unique([eventId, userId])
+  @@index([userId])
+}
