@@ -86,9 +86,22 @@ export async function joinMatchAction(
 
   const match = await prisma.match.findUnique({
     where: { id: matchId },
-    select: { id: true, formatId: true, status: true },
+    select: {
+      id: true,
+      formatId: true,
+      status: true,
+      eventId: true,
+      event: { select: { players: { select: { userId: true } } } },
+    },
   });
   if (!match) return { error: "Match not found." };
+
+  // A round of an event's best-of-X series is only joinable by that
+  // event's other player — not by anyone who happens to have the link,
+  // unlike a normal standalone match.
+  if (match.event && !match.event.players.some((p) => p.userId === session.user.id)) {
+    return { error: "Only the other player in this event may join this round." };
+  }
 
   let deck;
   let spriteInstanceId: string | null;

@@ -35,9 +35,24 @@ export default async function MatchDetailPage({
   const isParticipant = Boolean(viewerPlayer);
   const errorParam = typeof search.error === "string" ? search.error : null;
 
+  // A round of an event series is only joinable by that event's other
+  // player, not by anyone with the link.
+  const canJoin =
+    Boolean(session?.user) &&
+    !isParticipant &&
+    match.status === "WAITING" &&
+    (!match.event ||
+      match.event.players.some((p) => p.userId === session!.user.id));
+  const isEventRoundForOther =
+    Boolean(match.event) &&
+    Boolean(session?.user) &&
+    !isParticipant &&
+    match.status === "WAITING" &&
+    !match.event!.players.some((p) => p.userId === session!.user.id);
+
   let joinDecks: { id: string; label: string }[] = [];
   let joinSprites: { id: string; label: string }[] = [];
-  if (session?.user && !isParticipant && match.status === "WAITING") {
+  if (canJoin && session?.user) {
     const decks = await prisma.deck.findMany({
       where: { userId: session.user.id, formatId: match.formatId },
       select: { id: true, name: true },
@@ -125,7 +140,14 @@ export default async function MatchDetailPage({
         </div>
       )}
 
-      {match.status === "WAITING" && !isParticipant && session?.user && (
+      {isEventRoundForOther && (
+        <p className="mt-6 text-sm text-zinc-500">
+          This is a round of a private event series — only the other player
+          in that event can join it.
+        </p>
+      )}
+
+      {canJoin && (
         <div className="mt-6">
           {joinDecks.length === 0 ? (
             <p className="text-sm text-zinc-500">

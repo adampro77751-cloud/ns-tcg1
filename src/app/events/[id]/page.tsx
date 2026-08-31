@@ -8,21 +8,16 @@ import { matchesToWinFor, getEventRoundWins, getOpenEventRoundMatch } from "@/li
 import {
   joinEventAction,
   startEventAction,
-  startEventRoundAction,
   cancelEventAction,
 } from "@/lib/actions/event-actions";
 import { DeclareWinnerForm } from "./declare-winner-form";
+import { StartRoundForm } from "./start-round-form";
 
 const ERROR_MESSAGES: Record<string, string> = {
   "not-enough-players": `You need at least ${MIN_EVENT_PLAYERS} players to start.`,
   "invalid-winner": "Choose one of the joined players as the winner.",
   "series-auto-decided":
     "This is a best-of series — its winner is decided automatically from match results.",
-  "not-a-player": "You're not part of this event.",
-  "not-a-series": "This event isn't a best-of series.",
-  "missing-deck": "Both players need a deck on record to start a round.",
-  "deck-no-longer-legal":
-    "A player's deck is no longer legal for this event's format.",
 };
 
 export default async function EventDetailPage({
@@ -42,7 +37,6 @@ export default async function EventDetailPage({
   const errorParam = typeof search.error === "string" ? search.error : null;
 
   let joinSprites: { id: string; label: string }[] = [];
-  let joinDecks: { id: string; label: string }[] = [];
   if (session?.user && !isPlayer && !isFull && event.status === "REGISTRATION") {
     const spriteInstances = await prisma.spriteInstance.findMany({
       where: { ownerId: session.user.id },
@@ -58,15 +52,6 @@ export default async function EventDetailPage({
       id: s.id,
       label: `${s.name} — ${s.sprite.name}${s.sprite.rarity ? ` (${s.sprite.rarity})` : ""} — Level ${s.level}${s.level >= 5 ? " MAX" : ""}`,
     }));
-
-    const decks = await prisma.deck.findMany({
-      where: { userId: session.user.id, formatId: event.formatId },
-      select: { id: true, name: true },
-    });
-    const legality = await Promise.all(decks.map((d) => getDeckLegality(d.id)));
-    joinDecks = decks
-      .filter((_, i) => legality[i].legal)
-      .map((d) => ({ id: d.id, label: d.name }));
   }
 
   const isSeries = Boolean(event.bestOf);
@@ -76,6 +61,36 @@ export default async function EventDetailPage({
     isSeries && event.status === "IN_PROGRESS"
       ? await getOpenEventRoundMatch(event.id)
       : null;
+
+  // Deck + Sprite for starting the next round are chosen right here, not
+  // up front — only fetched when this viewer could actually start one.
+  let roundDecks: { id: string; label: string }[] = [];
+  let roundSprites: { id: string; label: string }[] = [];
+  if (session?.user && isPlayer && isSeries && event.status === "IN_PROGRESS" && !openRound) {
+    const decks = await prisma.deck.findMany({
+      where: { userId: session.user.id, formatId: event.formatId },
+      select: { id: true, name: true },
+    });
+    const legality = await Promise.all(decks.map((d) => getDeckLegality(d.id)));
+    roundDecks = decks
+      .filter((_, i) => legality[i].legal)
+      .map((d) => ({ id: d.id, label: d.name }));
+
+    const spriteInstances = await prisma.spriteInstance.findMany({
+      where: { ownerId: session.user.id },
+      select: {
+        id: true,
+        name: true,
+        level: true,
+        sprite: { select: { name: true, rarity: true } },
+      },
+      orderBy: [{ sprite: { name: "asc" } }, { obtainedAt: "asc" }],
+    });
+    roundSprites = spriteInstances.map((s) => ({
+      id: s.id,
+      label: `${s.name} — ${s.sprite.name}${s.sprite.rarity ? ` (${s.sprite.rarity})` : ""} — Level ${s.level}${s.level >= 5 ? " MAX" : ""}`,
+    }));
+  }
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
@@ -142,21 +157,6 @@ export default async function EventDetailPage({
           {session?.user && !isPlayer && !isFull && (
             <form action={joinEventAction} className="flex flex-wrap items-center gap-2">
               <input type="hidden" name="eventId" value={event.id} />
-              <select
-                name="deckId"
-                required={isSeries}
-                defaultValue=""
-                className="rounded border border-zinc-300 px-3 py-1.5 text-sm outline-none focus:border-blue-600"
-              >
-                <option value="">
-                  {isSeries ? "Choose a deck" : "No deck"}
-                </option>
-                {joinDecks.map((deck) => (
-                  <option key={deck.id} value={deck.id}>
-                    {deck.label}
-                  </option>
-                ))}
-              </select>
               <select
                 name="spriteInstanceId"
                 defaultValue=""
@@ -233,16 +233,20 @@ export default async function EventDetailPage({
               </li>
             ))}
           </ul>
-          {isPlayer && (
-            <form action={startEventRoundAction} className="mt-3">
-              <input type="hidden" name="eventId" value={event.id} />
-              <button
-                type="submit"
-                className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-              >
-                {openRound ? "Go to current round" : "Start next round"}
-              </button>
-            </form>
+          {isPlayer && openRound && (
+            <Link
+              href={`/play/${openRound.id}`}
+              className="mt-3 inline-block rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Go to current round
+            </Link>
+          )}
+          {isPlayer && !openRound && (
+            <StartRoundForm
+              eventId={event.id}
+              decks={roundDecks}
+              sprites={roundSprites}
+            />
           )}
         </div>
       )}

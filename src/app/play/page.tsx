@@ -61,6 +61,7 @@ export default async function PlayPage() {
     where: {
       status: "WAITING",
       isPrivate: false,
+      eventId: null,
       players: { none: { userId: session.user.id } },
     },
     orderBy: { createdAt: "desc" },

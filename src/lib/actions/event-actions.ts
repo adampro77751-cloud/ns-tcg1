@@ -15,7 +15,7 @@ import { normalizeJoinCode } from "@/lib/join-code";
 import { resolveOwnedSpriteInstance } from "@/lib/sprite-ownership";
 import { requireOwnedLegalDeck } from "@/lib/decks";
 import { awardEventXp } from "@/lib/sprite-progression";
-import { createEventRoundMatch } from "@/lib/matches";
+import { createMatchWithJoinCode } from "@/lib/matches";
 import { getOpenEventRoundMatch } from "@/lib/event-series";
 
 export type FormState = {
@@ -108,34 +108,12 @@ export async function joinEventAction(formData: FormData) {
 
   const eventId = String(formData.get("eventId") ?? "");
   const spriteInstanceIdInput = String(formData.get("spriteInstanceId") ?? "");
-  const deckIdInput = String(formData.get("deckId") ?? "");
 
   try {
     const spriteInstanceId = await resolveOwnedSpriteInstance(
       spriteInstanceIdInput,
       session.user.id,
     );
-
-    const eventForDeckCheck = await prisma.event.findUnique({
-      where: { id: eventId },
-      select: { formatId: true, bestOf: true },
-    });
-    if (!eventForDeckCheck) throw new Error("Event not found.");
-
-    // A deck is required for a best-of-X series (its rounds are real
-    // matches, which always need a legal deck) and optional otherwise —
-    // matching the manual-declare event flow, which never used decks.
-    let deckId: string | null = null;
-    if (deckIdInput) {
-      const deck = await requireOwnedLegalDeck(deckIdInput, session.user.id);
-      if (deck.formatId !== eventForDeckCheck.formatId) {
-        throw new Error("Your deck must match the event's format.");
-      }
-      deckId = deck.id;
-    } else if (eventForDeckCheck.bestOf) {
-      throw new Error("Choose a deck to join this best-of series.");
-    }
-
     await prisma.$transaction(async (tx) => {
       const event = await tx.event.findUnique({
         where: { id: eventId },
@@ -155,7 +133,7 @@ export async function joinEventAction(formData: FormData) {
       // The @@unique([eventId, userId]) constraint also blocks joining
       // twice under a concurrent double-submit.
       await tx.eventPlayer.create({
-        data: { eventId, userId: session.user.id, spriteInstanceId, deckId },
+        data: { eventId, userId: session.user.id, spriteInstanceId },
       });
     });
   } catch {
@@ -199,15 +177,28 @@ export async function startEventAction(formData: FormData) {
   redirect(`/events/${eventId}`);
 }
 
-// Starts the next round of a best-of-X event's series: creates a real
-// Match linking both players directly (no join code needed — the event
-// already knows exactly who's playing), using each player's deck/Sprite as
-// recorded on their EventPlayer row. Callable by either of the 2 players.
-export async function startEventRoundAction(formData: FormData) {
+export type StartRoundFormState = {
+  error: string | null;
+};
+
+// Starts the next round of a best-of-X event's series. Deck and Sprite for
+// the round are chosen right here by whichever of the 2 players starts it
+// — events never ask for a deck up front, only per round, at the moment
+// it's actually needed. Creates a normal WAITING Match (scoped to this
+// event — see joinMatchAction's guard) with just the starter's own
+// MatchPlayer attached; the other event player then picks their own
+// deck/Sprite to join it, the same way any match is joined.
+export async function startEventRoundAction(
+  _prevState: StartRoundFormState,
+  formData: FormData,
+): Promise<StartRoundFormState> {
   const session = await auth();
-  if (!session?.user) redirect("/login");
+  if (!session?.user) return { error: "You must be logged in." };
 
   const eventId = String(formData.get("eventId") ?? "");
+  const deckId = String(formData.get("deckId") ?? "");
+  if (!deckId) return { error: "Choose a deck." };
+  const spriteInstanceIdInput = String(formData.get("spriteInstanceId") ?? "");
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
@@ -216,24 +207,15 @@ export async function startEventRoundAction(formData: FormData) {
       status: true,
       bestOf: true,
       formatId: true,
-      format: { select: { name: true } },
-      players: {
-        select: { userId: true, deckId: true, spriteInstanceId: true },
-      },
+      players: { select: { userId: true } },
     },
   });
-  if (!event) redirect(`/events/${eventId}`);
+  if (!event) return { error: "Event not found." };
   if (!event.players.some((p) => p.userId === session.user.id)) {
-    redirect(`/events/${eventId}?error=not-a-player`);
+    return { error: "You're not part of this event." };
   }
-  if (!event.bestOf || event.status !== "IN_PROGRESS") {
-    redirect(`/events/${eventId}?error=not-a-series`);
-  }
-  if (event.players.length !== 2) {
-    redirect(`/events/${eventId}?error=not-a-series`);
-  }
-  if (event.players.some((p) => !p.deckId)) {
-    redirect(`/events/${eventId}?error=missing-deck`);
+  if (!event.bestOf || event.status !== "IN_PROGRESS" || event.players.length !== 2) {
+    return { error: "This event isn't an active best-of series." };
   }
 
   const openRound = await getOpenEventRoundMatch(eventId);
@@ -241,26 +223,28 @@ export async function startEventRoundAction(formData: FormData) {
     redirect(`/play/${openRound.id}`);
   }
 
-  // Re-validate both players' decks are still legal right now — deck
-  // contents can change after joining, and this is the point real cards
-  // actually get played, so it's checked fresh for every round, not just
-  // once at event-join time.
+  let deck;
+  let spriteInstanceId: string | null;
   try {
-    for (const p of event.players) {
-      await requireOwnedLegalDeck(p.deckId!, p.userId);
+    deck = await requireOwnedLegalDeck(deckId, session.user.id);
+    if (deck.formatId !== event.formatId) {
+      return { error: "Your deck must match the event's format." };
     }
-  } catch {
-    redirect(`/events/${eventId}?error=deck-no-longer-legal`);
+    spriteInstanceId = await resolveOwnedSpriteInstance(
+      spriteInstanceIdInput,
+      session.user.id,
+    );
+  } catch (err) {
+    return { error: (err as Error).message };
   }
 
-  const match = await createEventRoundMatch({
-    eventId,
+  const match = await createMatchWithJoinCode({
     formatId: event.formatId,
-    players: event.players.map((p) => ({
-      userId: p.userId,
-      deckId: p.deckId!,
-      spriteInstanceId: p.spriteInstanceId,
-    })),
+    creatorUserId: session.user.id,
+    creatorDeckId: deck.id,
+    creatorSpriteInstanceId: spriteInstanceId,
+    isPrivate: true,
+    eventId: event.id,
   });
 
   revalidatePath(`/events/${eventId}`);
