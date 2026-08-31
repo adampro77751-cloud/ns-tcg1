@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { xpProgress } from "@/lib/xp";
+import { getSpriteInstanceMatchStats } from "@/lib/sprite-stats";
 import { RenameSpriteForm } from "./rename-sprite-form";
 
 const RARITY_STYLES: Record<string, string> = {
@@ -24,7 +26,13 @@ function describeHistoryEntry(
     case "RENAMED":
       return `Renamed from "${String(d.previousName ?? "?")}" to "${String(d.newName ?? "?")}".`;
     case "LEVEL_UP":
-      return `Leveled up from ${String(d.previousLevel ?? "?")} to ${String(d.newLevel ?? "?")}.`;
+      return `Leveled up from ${String(d.previousLevel ?? "?")} to ${String(d.newLevel ?? "?")}${d.maxLevel ? " — MAX LEVEL" : ""}.`;
+    case "MATCH_WON":
+      return `Won a ${String(d.formatName ?? "")} match.`.replace(/\s+/g, " ");
+    case "MATCH_PLAYED":
+      return `Played a ${String(d.formatName ?? "")} match.`.replace(/\s+/g, " ");
+    case "XP_GAINED":
+      return `+${String(d.xpGained ?? "?")} XP (total ${String(d.totalXp ?? "?")}).`;
     default:
       return type;
   }
@@ -42,6 +50,7 @@ export default async function SpriteInstancePage({
       id: true,
       name: true,
       level: true,
+      xp: true,
       obtainedAt: true,
       obtainedMethod: true,
       ownerId: true,
@@ -66,6 +75,8 @@ export default async function SpriteInstancePage({
   if (!instance) notFound();
 
   const isOwner = session?.user?.id === instance.ownerId;
+  const progress = xpProgress(instance.xp);
+  const stats = await getSpriteInstanceMatchStats(instance.id);
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
@@ -103,10 +114,25 @@ export default async function SpriteInstancePage({
         <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600">
           {instance.edition.name}
         </span>
-        <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600">
+        <span
+          className={
+            "rounded px-2 py-1 text-xs font-semibold " +
+            (progress.isMaxLevel
+              ? "bg-amber-100 text-amber-800"
+              : "bg-zinc-100 text-zinc-600")
+          }
+        >
           Level {instance.level}
+          {progress.isMaxLevel ? " — MAX LEVEL" : ""}
         </span>
       </div>
+
+      <p className="mt-2 text-xs text-zinc-500">
+        {instance.xp} XP total
+        {!progress.isMaxLevel &&
+          progress.xpForNextLevel !== null &&
+          ` · ${progress.xpForNextLevel - progress.xpIntoLevel} XP to Level ${progress.nextLevel}`}
+      </p>
 
       {instance.sprite.image && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -145,6 +171,18 @@ export default async function SpriteInstancePage({
         <div>
           <dt className="text-zinc-500">Date obtained</dt>
           <dd>{instance.obtainedAt.toLocaleDateString()}</dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Matches played</dt>
+          <dd>{stats.matchesPlayed}</dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Matches won</dt>
+          <dd>{stats.matchesWon}</dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Win rate</dt>
+          <dd>{stats.winRate.toFixed(0)}%</dd>
         </div>
       </dl>
 

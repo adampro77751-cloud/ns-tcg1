@@ -136,6 +136,9 @@ enum SpriteHistoryEventType {
   OBTAINED
   RENAMED
   LEVEL_UP
+  MATCH_PLAYED
+  MATCH_WON
+  XP_GAINED
 }
 
 // An individually owned Sprite. Every redeemed/obtained Sprite is its own
@@ -157,13 +160,16 @@ model SpriteInstance {
   // visible via the `sprite`/`edition` relations regardless of nickname.
   name String
 
-  // Not yet wired to any progression mechanic — NS TCG's actual levelling
-  // rules (XP requirements, max level, triggers, rewards, etc.) have not
-  // been defined. Nothing in this codebase currently changes this value;
-  // it exists so the architecture is ready once real rules are provided.
-  // Every mutation path must validate server-side and never trust a
-  // client-submitted level/XP value.
+  // Level is always derived server-side from `xp` via levelForXp() in
+  // src/lib/xp.ts — never trust a client-submitted level. Capped at 5
+  // (MAX_SPRITE_LEVEL) both by that derivation and by the DB-level CHECK
+  // constraint added in the add_progression migration, so no request path
+  // (including direct SQL) can push a Sprite above Level 5.
   level Int @default(1)
+  // Total accumulated XP from confirmed match wins/losses of the equipped
+  // Sprite. Keeps increasing after Level 5 is reached (visible on the
+  // Sprite's page) but never causes a level above 5.
+  xp    Int @default(0)
 
   obtainedMethod SpriteObtainMethod @default(UNKNOWN)
   obtainedAt     DateTime           @default(now())
@@ -172,6 +178,7 @@ model SpriteInstance {
 
   history        SpriteHistoryEntry[]
   redemptionCode RedemptionCode?
+  matchPlayers   MatchPlayer[]
 
   @@index([ownerId])
   @@index([spriteId])
@@ -256,6 +263,12 @@ model Format {
   minDeckSize      Int
   maxDeckSize      Int?
   maxCopiesPerCard Int
+  // Real, authoritative match-setup values for this format (not display
+  // text) — read by match creation/join so a match actually starts with
+  // the right hand size/health for its format instead of duplicating these
+  // numbers across components.
+  startingHand     Int
+  startingHealth   Int
   allowedSets      String? // JSON string array, null = all sets allowed
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
@@ -353,10 +366,22 @@ model MatchPlayer {
   user     User     @relation(fields: [userId], references: [id])
   deckId   String
   deck     Deck     @relation(fields: [deckId], references: [id])
+
+  // The individual owned SpriteInstance this player equipped for the match,
+  // if any — "No Sprite" is represented as null, a legitimate first-class
+  // state, not the absence of a decision. Always validated server-side
+  // against session ownership before being set (see match-actions.ts);
+  // never trusted from client input. onDelete: SetNull so a historical
+  // match survives even if the Sprite instance it referenced were ever
+  // removed.
+  spriteInstanceId String?
+  spriteInstance    SpriteInstance? @relation(fields: [spriteInstanceId], references: [id], onDelete: SetNull)
+
   joinedAt DateTime @default(now())
 
   @@unique([matchId, userId])
   @@index([userId])
+  @@index([spriteInstanceId])
 }
 
 enum ResultStatus {
@@ -384,6 +409,13 @@ model MatchResult {
   confirmedBy   User?        @relation("ConfirmedBy", fields: [confirmedById], references: [id])
   confirmedAt   DateTime?
   status        ResultStatus @default(PENDING)
+
+  // Set exactly once, in the same transaction that flips PENDING ->
+  // CONFIRMED, right after Sprite XP is awarded for this match. A second,
+  // independent guard (on top of that atomic status transition, which by
+  // itself can only ever fire once per match) against ever awarding XP for
+  // the same match twice — via double confirmation, replay, or concurrency.
+  xpAwardedAt DateTime?
 
   @@index([winnerId])
   @@index([loserId])

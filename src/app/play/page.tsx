@@ -25,6 +25,21 @@ export default async function PlayPage() {
       label: `${deck.name} (${deck.format.name})`,
     }));
 
+  const spriteInstances = await prisma.spriteInstance.findMany({
+    where: { ownerId: session.user.id },
+    select: {
+      id: true,
+      name: true,
+      level: true,
+      sprite: { select: { name: true, rarity: true } },
+    },
+    orderBy: [{ sprite: { name: "asc" } }, { obtainedAt: "asc" }],
+  });
+  const spriteOptions = spriteInstances.map((s) => ({
+    id: s.id,
+    label: `${s.name} — ${s.sprite.name}${s.sprite.rarity ? ` (${s.sprite.rarity})` : ""} — Level ${s.level}${s.level >= 5 ? " MAX" : ""}`,
+  }));
+
   const openMatches = await prisma.match.findMany({
     where: {
       players: { some: { userId: session.user.id } },
@@ -46,7 +61,7 @@ export default async function PlayPage() {
       <div className="mt-6 grid gap-6 sm:grid-cols-2">
         <div className="rounded border border-zinc-200 p-4">
           <h2 className="font-semibold">Start a match</h2>
-          <StartMatchForm decks={legalDecks} />
+          <StartMatchForm decks={legalDecks} sprites={spriteOptions} />
         </div>
         <div className="rounded border border-zinc-200 p-4">
           <h2 className="font-semibold">Join a match</h2>

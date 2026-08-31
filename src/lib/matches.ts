@@ -8,6 +8,7 @@ export async function createMatchWithJoinCode(params: {
   formatId: string;
   creatorUserId: string;
   creatorDeckId: string;
+  creatorSpriteInstanceId: string | null;
 }) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const joinCode = generateJoinCode();
@@ -20,6 +21,7 @@ export async function createMatchWithJoinCode(params: {
             create: {
               userId: params.creatorUserId,
               deckId: params.creatorDeckId,
+              spriteInstanceId: params.creatorSpriteInstanceId,
             },
           },
         },
@@ -39,12 +41,27 @@ export function getMatchDetails(matchId: string) {
   return prisma.match.findUnique({
     where: { id: matchId },
     include: {
-      format: { select: { id: true, name: true } },
+      format: {
+        select: {
+          id: true,
+          name: true,
+          startingHand: true,
+          startingHealth: true,
+        },
+      },
       players: {
         orderBy: { joinedAt: "asc" },
         include: {
           user: { select: { id: true, username: true } },
           deck: { select: { id: true, name: true } },
+          spriteInstance: {
+            select: {
+              id: true,
+              name: true,
+              level: true,
+              sprite: { select: { name: true, rarity: true } },
+            },
+          },
         },
       },
       result: {

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getDeckLegality } from "@/lib/decks";
 import { createMatchWithJoinCode } from "@/lib/matches";
 import { normalizeJoinCode } from "@/lib/join-code";
+import { awardMatchXp } from "@/lib/sprite-progression";
 
 export type FormState = {
   error: string | null;
@@ -27,6 +28,26 @@ async function requireOwnedLegalDeck(deckId: string, userId: string) {
   return deck;
 }
 
+// "No Sprite" (empty selection) is always legitimate and resolves to null.
+// Anything else must be an individual SpriteInstance actually owned by this
+// user — re-checked here against the database on every call, never trusted
+// from the submitted value, so a manipulated/guessed instance ID can never
+// equip another player's (or nonexistent) Sprite.
+async function resolveOwnedSpriteInstance(
+  spriteInstanceId: string,
+  userId: string,
+): Promise<string | null> {
+  if (!spriteInstanceId) return null;
+  const instance = await prisma.spriteInstance.findUnique({
+    where: { id: spriteInstanceId },
+    select: { id: true, ownerId: true },
+  });
+  if (!instance || instance.ownerId !== userId) {
+    throw new Error("You don't own that Sprite.");
+  }
+  return instance.id;
+}
+
 export async function createMatchAction(
   _prevState: FormState,
   formData: FormData,
@@ -36,10 +57,16 @@ export async function createMatchAction(
 
   const deckId = String(formData.get("deckId") ?? "");
   if (!deckId) return { error: "Choose a deck." };
+  const spriteInstanceIdInput = String(formData.get("spriteInstanceId") ?? "");
 
   let deck;
+  let spriteInstanceId: string | null;
   try {
     deck = await requireOwnedLegalDeck(deckId, session.user.id);
+    spriteInstanceId = await resolveOwnedSpriteInstance(
+      spriteInstanceIdInput,
+      session.user.id,
+    );
   } catch (err) {
     return { error: (err as Error).message };
   }
@@ -48,6 +75,7 @@ export async function createMatchAction(
     formatId: deck.formatId,
     creatorUserId: session.user.id,
     creatorDeckId: deck.id,
+    creatorSpriteInstanceId: spriteInstanceId,
   });
 
   redirect(`/play/${match.id}`);
@@ -82,6 +110,7 @@ export async function joinMatchAction(
   const matchId = String(formData.get("matchId") ?? "");
   const deckId = String(formData.get("deckId") ?? "");
   if (!deckId) return { error: "Choose a deck." };
+  const spriteInstanceIdInput = String(formData.get("spriteInstanceId") ?? "");
 
   const match = await prisma.match.findUnique({
     where: { id: matchId },
@@ -90,8 +119,13 @@ export async function joinMatchAction(
   if (!match) return { error: "Match not found." };
 
   let deck;
+  let spriteInstanceId: string | null;
   try {
     deck = await requireOwnedLegalDeck(deckId, session.user.id);
+    spriteInstanceId = await resolveOwnedSpriteInstance(
+      spriteInstanceIdInput,
+      session.user.id,
+    );
   } catch (err) {
     return { error: (err as Error).message };
   }
@@ -114,7 +148,12 @@ export async function joinMatchAction(
       // The @@unique([matchId, userId]) constraint also blocks the creator
       // from "joining" their own match a second time.
       await tx.matchPlayer.create({
-        data: { matchId, userId: session.user.id, deckId: deck.id },
+        data: {
+          matchId,
+          userId: session.user.id,
+          deckId: deck.id,
+          spriteInstanceId,
+        },
       });
     });
   } catch (err) {
@@ -219,6 +258,45 @@ export async function confirmResultAction(formData: FormData) {
       where: { id: matchId, status: "AWAITING_CONFIRMATION" },
       data: { status: "COMPLETED", finishedAt: new Date() },
     });
+
+    // Award Sprite XP. `updated.count > 0` above already guarantees the
+    // PENDING -> CONFIRMED transition just happened for the first and only
+    // time (nothing in this codebase ever moves a CONFIRMED result back to
+    // PENDING, so this block can never run twice for the same match by
+    // construction). The xpAwardedAt check is a second, independent guard
+    // against the same double-award scenario.
+    const result = await tx.matchResult.findUniqueOrThrow({
+      where: { matchId },
+      select: { id: true, winnerId: true, loserId: true, xpAwardedAt: true },
+    });
+    if (!result.xpAwardedAt) {
+      const matchWithPlayers = await tx.match.findUniqueOrThrow({
+        where: { id: matchId },
+        select: {
+          format: { select: { name: true } },
+          players: { select: { userId: true, spriteInstanceId: true } },
+        },
+      });
+      const winnerSpriteInstanceId =
+        matchWithPlayers.players.find((p) => p.userId === result.winnerId)
+          ?.spriteInstanceId ?? null;
+      const loserSpriteInstanceId = result.loserId
+        ? (matchWithPlayers.players.find((p) => p.userId === result.loserId)
+            ?.spriteInstanceId ?? null)
+        : null;
+
+      await awardMatchXp(tx, {
+        matchId,
+        formatName: matchWithPlayers.format.name,
+        winnerSpriteInstanceId,
+        loserSpriteInstanceId,
+      });
+
+      await tx.matchResult.update({
+        where: { id: result.id },
+        data: { xpAwardedAt: new Date() },
+      });
+    }
   });
 
   revalidatePath(`/play/${matchId}`);

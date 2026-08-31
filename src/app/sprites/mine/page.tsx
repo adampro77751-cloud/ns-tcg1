@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { MAX_SPRITE_LEVEL } from "@/lib/xp";
 
 const RARITY_STYLES: Record<string, string> = {
   RARE: "bg-blue-100 text-blue-800",
@@ -71,7 +72,10 @@ export default async function MySpritesPage() {
                   </span>
                 </div>
                 <div className="mt-1 flex items-center justify-between text-xs text-zinc-500">
-                  <span>Level {instance.level}</span>
+                  <span>
+                    Level {instance.level}
+                    {instance.level >= MAX_SPRITE_LEVEL ? " — MAX LEVEL" : ""}
+                  </span>
                   <span>{instance.obtainedAt.toLocaleDateString()}</span>
                 </div>
               </Link>

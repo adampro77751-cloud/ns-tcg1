@@ -36,47 +36,82 @@ async function main() {
     `Seeded ${sprites.length} Sprites (${editions.map((e) => e.name).join(", ")}).`,
   );
 
-  // Deck-building formats. Unrelated to Sprites/cards; left as-is. Banned
-  // and restricted cards aren't seeded here since no real Card data exists
-  // yet — add those once real cards are entered.
-  const standard = await prisma.format.upsert({
-    where: { slug: "standard" },
+  // The three NS TCG formats. Banned and restricted cards aren't seeded
+  // here since no real Card data exists yet — add those once real cards
+  // are entered. Basic/Historic share the same deck-construction rules
+  // (kept as separate Format rows so their legality can diverge later);
+  // Quickfire is fixed at exactly 10 cards.
+  const basic = await prisma.format.upsert({
+    where: { slug: "basic" },
     update: {
       minDeckSize: 30,
-      maxDeckSize: 40,
+      maxDeckSize: null,
       maxCopiesPerCard: 3,
+      startingHand: 5,
+      startingHealth: 500,
       allowedSets: serializeAllowedSets(null),
     },
     create: {
-      name: "Standard",
-      slug: "standard",
-      description: "The default competitive format. All sets are legal.",
+      name: "Basic",
+      slug: "basic",
+      description: "The main standard NS TCG format.",
       minDeckSize: 30,
-      maxDeckSize: 40,
+      maxDeckSize: null,
       maxCopiesPerCard: 3,
+      startingHand: 5,
+      startingHealth: 500,
       allowedSets: serializeAllowedSets(null),
     },
   });
 
-  const coreOnly = await prisma.format.upsert({
-    where: { slug: "core-set-only" },
+  const historic = await prisma.format.upsert({
+    where: { slug: "historic" },
     update: {
-      minDeckSize: 20,
+      minDeckSize: 30,
       maxDeckSize: null,
-      maxCopiesPerCard: 2,
-      allowedSets: serializeAllowedSets(["Core Set"]),
+      maxCopiesPerCard: 3,
+      startingHand: 5,
+      startingHealth: 500,
+      allowedSets: serializeAllowedSets(null),
     },
     create: {
-      name: "Core Set Only",
-      slug: "core-set-only",
-      description: "Only cards from Core Set are legal.",
-      minDeckSize: 20,
+      name: "Historic",
+      slug: "historic",
+      description: "The historic NS TCG card-pool format.",
+      minDeckSize: 30,
       maxDeckSize: null,
-      maxCopiesPerCard: 2,
-      allowedSets: serializeAllowedSets(["Core Set"]),
+      maxCopiesPerCard: 3,
+      startingHand: 5,
+      startingHealth: 500,
+      allowedSets: serializeAllowedSets(null),
     },
   });
-  console.log(`Formats present: ${standard.name}, ${coreOnly.name}.`);
+
+  const quickfire = await prisma.format.upsert({
+    where: { slug: "quickfire" },
+    update: {
+      minDeckSize: 10,
+      maxDeckSize: 10,
+      maxCopiesPerCard: 3,
+      startingHand: 3,
+      startingHealth: 200,
+      allowedSets: serializeAllowedSets(null),
+    },
+    create: {
+      name: "Quickfire",
+      slug: "quickfire",
+      description: "A fast 10-card NS TCG format.",
+      minDeckSize: 10,
+      maxDeckSize: 10,
+      maxCopiesPerCard: 3,
+      startingHand: 3,
+      startingHealth: 200,
+      allowedSets: serializeAllowedSets(null),
+    },
+  });
+  console.log(
+    `Formats present: ${basic.name}, ${historic.name}, ${quickfire.name}.`,
+  );
 
   // Grant the ADMIN role to the existing "Admin" account, if it exists.
   // This never creates a new user — only an already-existing account named

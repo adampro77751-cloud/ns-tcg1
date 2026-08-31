@@ -36,6 +36,7 @@ export default async function MatchDetailPage({
   const errorParam = typeof search.error === "string" ? search.error : null;
 
   let joinDecks: { id: string; label: string }[] = [];
+  let joinSprites: { id: string; label: string }[] = [];
   if (session?.user && !isParticipant && match.status === "WAITING") {
     const decks = await prisma.deck.findMany({
       where: { userId: session.user.id, formatId: match.formatId },
@@ -47,6 +48,21 @@ export default async function MatchDetailPage({
     joinDecks = decks
       .filter((_, i) => legality[i].legal)
       .map((d) => ({ id: d.id, label: d.name }));
+
+    const spriteInstances = await prisma.spriteInstance.findMany({
+      where: { ownerId: session.user.id },
+      select: {
+        id: true,
+        name: true,
+        level: true,
+        sprite: { select: { name: true, rarity: true } },
+      },
+      orderBy: [{ sprite: { name: "asc" } }, { obtainedAt: "asc" }],
+    });
+    joinSprites = spriteInstances.map((s) => ({
+      id: s.id,
+      label: `${s.name} — ${s.sprite.name}${s.sprite.rarity ? ` (${s.sprite.rarity})` : ""} — Level ${s.level}${s.level >= 5 ? " MAX" : ""}`,
+    }));
   }
 
   return (
@@ -61,6 +77,10 @@ export default async function MatchDetailPage({
       </div>
       <p className="mt-1 font-mono text-sm text-zinc-500">
         Join code: {match.joinCode}
+      </p>
+      <p className="mt-1 text-xs text-zinc-500">
+        Starting hand: {match.format.startingHand} · Starting health:{" "}
+        {match.format.startingHealth}
       </p>
 
       {errorParam && (
@@ -108,7 +128,11 @@ export default async function MatchDetailPage({
               .
             </p>
           ) : (
-            <JoinMatchDeckForm matchId={match.id} decks={joinDecks} />
+            <JoinMatchDeckForm
+              matchId={match.id}
+              decks={joinDecks}
+              sprites={joinSprites}
+            />
           )}
         </div>
       )}
@@ -209,6 +233,12 @@ function PlayerBlock({
   player: {
     user: { username: string };
     deck: { name: string };
+    spriteInstance: {
+      id: string;
+      name: string;
+      level: number;
+      sprite: { name: string; rarity: string | null };
+    } | null;
   };
 }) {
   return (
@@ -216,6 +246,20 @@ function PlayerBlock({
       <div className="text-xs text-zinc-400">{label}</div>
       <div className="font-semibold">{player.user.username}</div>
       <div className="text-xs text-zinc-500">{player.deck.name}</div>
+      <div className="mt-1 text-xs text-zinc-500">
+        {player.spriteInstance ? (
+          <>
+            {player.spriteInstance.name} · {player.spriteInstance.sprite.name}
+            {player.spriteInstance.sprite.rarity
+              ? ` · ${player.spriteInstance.sprite.rarity}`
+              : ""}{" "}
+            · Level {player.spriteInstance.level}
+            {player.spriteInstance.level >= 5 ? " — MAX LEVEL" : ""}
+          </>
+        ) : (
+          "No Sprite"
+        )}
+      </div>
     </div>
   );
 }

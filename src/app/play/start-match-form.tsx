@@ -11,8 +11,10 @@ const initialState: FormState = { error: null };
 
 export function StartMatchForm({
   decks,
+  sprites,
 }: {
   decks: { id: string; label: string }[];
+  sprites: { id: string; label: string }[];
 }) {
   const [state, formAction, pending] = useActionState(
     createMatchAction,
@@ -45,6 +47,18 @@ export function StartMatchForm({
         {decks.map((deck) => (
           <option key={deck.id} value={deck.id}>
             {deck.label}
+          </option>
+        ))}
+      </select>
+      <select
+        name="spriteInstanceId"
+        defaultValue=""
+        className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+      >
+        <option value="">No Sprite</option>
+        {sprites.map((sprite) => (
+          <option key={sprite.id} value={sprite.id}>
+            {sprite.label}
           </option>
         ))}
       </select>
