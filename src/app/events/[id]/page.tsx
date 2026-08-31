@@ -3,9 +3,12 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getEventDetails, MIN_EVENT_PLAYERS } from "@/lib/events";
+import { getDeckLegality } from "@/lib/decks";
+import { matchesToWinFor, getEventRoundWins, getOpenEventRoundMatch } from "@/lib/event-series";
 import {
   joinEventAction,
   startEventAction,
+  startEventRoundAction,
   cancelEventAction,
 } from "@/lib/actions/event-actions";
 import { DeclareWinnerForm } from "./declare-winner-form";
@@ -13,6 +16,13 @@ import { DeclareWinnerForm } from "./declare-winner-form";
 const ERROR_MESSAGES: Record<string, string> = {
   "not-enough-players": `You need at least ${MIN_EVENT_PLAYERS} players to start.`,
   "invalid-winner": "Choose one of the joined players as the winner.",
+  "series-auto-decided":
+    "This is a best-of series — its winner is decided automatically from match results.",
+  "not-a-player": "You're not part of this event.",
+  "not-a-series": "This event isn't a best-of series.",
+  "missing-deck": "Both players need a deck on record to start a round.",
+  "deck-no-longer-legal":
+    "A player's deck is no longer legal for this event's format.",
 };
 
 export default async function EventDetailPage({
@@ -32,6 +42,7 @@ export default async function EventDetailPage({
   const errorParam = typeof search.error === "string" ? search.error : null;
 
   let joinSprites: { id: string; label: string }[] = [];
+  let joinDecks: { id: string; label: string }[] = [];
   if (session?.user && !isPlayer && !isFull && event.status === "REGISTRATION") {
     const spriteInstances = await prisma.spriteInstance.findMany({
       where: { ownerId: session.user.id },
@@ -47,7 +58,24 @@ export default async function EventDetailPage({
       id: s.id,
       label: `${s.name} — ${s.sprite.name}${s.sprite.rarity ? ` (${s.sprite.rarity})` : ""} — Level ${s.level}${s.level >= 5 ? " MAX" : ""}`,
     }));
+
+    const decks = await prisma.deck.findMany({
+      where: { userId: session.user.id, formatId: event.formatId },
+      select: { id: true, name: true },
+    });
+    const legality = await Promise.all(decks.map((d) => getDeckLegality(d.id)));
+    joinDecks = decks
+      .filter((_, i) => legality[i].legal)
+      .map((d) => ({ id: d.id, label: d.name }));
   }
+
+  const isSeries = Boolean(event.bestOf);
+  const roundWins = isSeries ? await getEventRoundWins(event.id) : {};
+  const roundTarget = event.bestOf ? matchesToWinFor(event.bestOf) : null;
+  const openRound =
+    isSeries && event.status === "IN_PROGRESS"
+      ? await getOpenEventRoundMatch(event.id)
+      : null;
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
@@ -112,8 +140,23 @@ export default async function EventDetailPage({
       {event.status === "REGISTRATION" && (
         <div className="mt-6 flex flex-wrap items-center gap-3">
           {session?.user && !isPlayer && !isFull && (
-            <form action={joinEventAction} className="flex items-center gap-2">
+            <form action={joinEventAction} className="flex flex-wrap items-center gap-2">
               <input type="hidden" name="eventId" value={event.id} />
+              <select
+                name="deckId"
+                required={isSeries}
+                defaultValue=""
+                className="rounded border border-zinc-300 px-3 py-1.5 text-sm outline-none focus:border-blue-600"
+              >
+                <option value="">
+                  {isSeries ? "Choose a deck" : "No deck"}
+                </option>
+                {joinDecks.map((deck) => (
+                  <option key={deck.id} value={deck.id}>
+                    {deck.label}
+                  </option>
+                ))}
+              </select>
               <select
                 name="spriteInstanceId"
                 defaultValue=""
@@ -171,7 +214,40 @@ export default async function EventDetailPage({
         </div>
       )}
 
-      {event.status === "IN_PROGRESS" && isOrganizer && (
+      {event.status === "IN_PROGRESS" && isSeries && (
+        <div className="mt-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            Best of {event.bestOf} — first to {roundTarget}
+          </h2>
+          <ul className="mt-3 flex flex-col gap-1.5">
+            {event.players.map((p) => (
+              <li
+                key={p.userId}
+                className="flex items-center justify-between rounded border border-zinc-200 px-3 py-2 text-sm"
+              >
+                <span>{p.user.username}</span>
+                <span className="font-semibold">
+                  {roundWins[p.userId] ?? 0} round
+                  {(roundWins[p.userId] ?? 0) === 1 ? "" : "s"} won
+                </span>
+              </li>
+            ))}
+          </ul>
+          {isPlayer && (
+            <form action={startEventRoundAction} className="mt-3">
+              <input type="hidden" name="eventId" value={event.id} />
+              <button
+                type="submit"
+                className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                {openRound ? "Go to current round" : "Start next round"}
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
+      {event.status === "IN_PROGRESS" && isOrganizer && !isSeries && (
         <div className="mt-6">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
             Declare winner

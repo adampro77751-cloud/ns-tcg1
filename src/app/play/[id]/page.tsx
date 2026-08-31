@@ -82,6 +82,15 @@ export default async function MatchDetailPage({
         Starting hand: {match.format.startingHand} · Starting health:{" "}
         {match.format.startingHealth}
       </p>
+      {match.event && (
+        <p className="mt-1 text-xs text-zinc-500">
+          Round of{" "}
+          <Link href={`/events/${match.event.id}`} className="text-blue-600">
+            {match.event.name}
+          </Link>{" "}
+          (best of {match.event.bestOf})
+        </p>
+      )}
 
       {errorParam && (
         <p className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

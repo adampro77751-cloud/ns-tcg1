@@ -355,8 +355,22 @@ model Match {
   startedAt  DateTime?
   finishedAt DateTime?
 
+  // Normal (public) matches are listed for anyone to join directly;
+  // private matches are reachable only via their direct link/join code,
+  // same as every match behaved before this field existed — hence
+  // defaulting to true, so no existing match becomes newly public.
+  isPrivate Boolean @default(true)
+
+  // Set when this Match is one round of an Event's best-of-X series
+  // (Event.bestOf) — null for a standalone match. onDelete: SetNull since
+  // Events are never deleted, but keeps this safe regardless.
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
   players MatchPlayer[]
   result  MatchResult?
+
+  @@index([eventId])
 }
 
 model MatchPlayer {
@@ -454,12 +468,23 @@ model Event {
   winnerId    String?
   winner      User?       @relation("EventWinner", fields: [winnerId], references: [id])
 
-  // Set exactly once, in the same transaction that declares a winner and
-  // moves the Event to COMPLETED — mirrors MatchResult.xpAwardedAt as a
-  // guard against ever awarding Sprite XP for the same event twice.
+  // When set (an odd number: 1, 3, 5, 7), this event is a head-to-head
+  // best-of-`bestOf` series between its exactly 2 players, played as real
+  // tracked Matches (see Match.eventId) — the winner is derived
+  // automatically once a player's confirmed round wins reach
+  // ceil(bestOf/2), never manually declared. Null keeps the original v1
+  // behaviour: the organiser manually declares a winner. Enforced
+  // server-side that bestOf can only be set when maxPlayers = 2.
+  bestOf Int?
+
+  // Set exactly once, in the same transaction that declares/derives a
+  // winner and moves the Event to COMPLETED — mirrors
+  // MatchResult.xpAwardedAt as a guard against ever awarding Sprite XP for
+  // the same event twice.
   xpAwardedAt DateTime?
 
   players EventPlayer[]
+  matches Match[]
 
   @@index([organizerId])
 }

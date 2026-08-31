@@ -54,6 +54,24 @@ export default async function PlayPage() {
     },
   });
 
+  // Normal (non-private) matches still waiting for an opponent, from
+  // anyone — join directly with no code needed. Excludes matches this
+  // viewer already created (those already show in "Your open matches").
+  const publicOpenMatches = await prisma.match.findMany({
+    where: {
+      status: "WAITING",
+      isPrivate: false,
+      players: { none: { userId: session.user.id } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 30,
+    select: {
+      id: true,
+      format: { select: { name: true } },
+      players: { select: { user: { select: { username: true } } } },
+    },
+  });
+
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-12">
       <h1 className="text-2xl font-bold tracking-tight">Play</h1>
@@ -68,6 +86,29 @@ export default async function PlayPage() {
           <JoinMatchForm />
         </div>
       </div>
+
+      {publicOpenMatches.length > 0 && (
+        <>
+          <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            Open matches
+          </h2>
+          <ul className="mt-3 flex flex-col gap-2">
+            {publicOpenMatches.map((match) => (
+              <li key={match.id}>
+                <Link
+                  href={`/play/${match.id}`}
+                  className="flex items-center justify-between rounded border border-zinc-200 px-4 py-3 hover:border-zinc-400"
+                >
+                  <span>
+                    {match.format.name} · {match.players[0]?.user.username}
+                  </span>
+                  <span className="text-xs text-blue-600">Join</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
 
       {openMatches.length > 0 && (
         <>

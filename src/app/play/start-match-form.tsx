@@ -62,6 +62,17 @@ export function StartMatchForm({
           </option>
         ))}
       </select>
+      <fieldset className="flex items-center gap-4 text-sm">
+        <legend className="mb-1 text-sm font-medium">Visibility</legend>
+        <label className="flex items-center gap-1.5">
+          <input type="radio" name="visibility" value="private" defaultChecked />
+          Private (code/link only)
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input type="radio" name="visibility" value="public" />
+          Normal (listed for anyone to join)
+        </label>
+      </fieldset>
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
       <button
         type="submit"

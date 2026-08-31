@@ -14,6 +14,7 @@ export async function createEventWithJoinCode(params: {
   formatId: string;
   maxPlayers: number;
   organizerId: string;
+  bestOf: number | null;
 }) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const joinCode = generateJoinCode();
@@ -23,6 +24,7 @@ export async function createEventWithJoinCode(params: {
           name: params.name,
           formatId: params.formatId,
           maxPlayers: params.maxPlayers,
+          bestOf: params.bestOf,
           joinCode,
           organizerId: params.organizerId,
           players: { create: { userId: params.organizerId } },
@@ -50,6 +52,7 @@ export function getEventDetails(eventId: string) {
         orderBy: { joinedAt: "asc" },
         include: {
           user: { select: { id: true, username: true } },
+          deck: { select: { id: true, name: true } },
           spriteInstance: {
             select: {
               id: true,
@@ -58,6 +61,14 @@ export function getEventDetails(eventId: string) {
               sprite: { select: { name: true, rarity: true } },
             },
           },
+        },
+      },
+      matches: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          status: true,
+          result: { select: { winnerId: true, status: true } },
         },
       },
     },

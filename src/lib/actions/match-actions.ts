@@ -4,30 +4,19 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getDeckLegality } from "@/lib/decks";
+import { requireOwnedLegalDeck } from "@/lib/decks";
 import { createMatchWithJoinCode } from "@/lib/matches";
 import { normalizeJoinCode } from "@/lib/join-code";
-import { awardMatchXp } from "@/lib/sprite-progression";
+import { awardMatchXp, awardEventXp } from "@/lib/sprite-progression";
 import { resolveOwnedSpriteInstance } from "@/lib/sprite-ownership";
+import {
+  matchesToWinFor,
+  getEventRoundWins,
+} from "@/lib/event-series";
 
 export type FormState = {
   error: string | null;
 };
-
-async function requireOwnedLegalDeck(deckId: string, userId: string) {
-  const deck = await prisma.deck.findUnique({
-    where: { id: deckId },
-    select: { id: true, userId: true, formatId: true },
-  });
-  if (!deck || deck.userId !== userId) {
-    throw new Error("You don't own that deck.");
-  }
-  const legality = await getDeckLegality(deck.id);
-  if (!legality.legal) {
-    throw new Error("That deck isn't legal for its format.");
-  }
-  return deck;
-}
 
 export async function createMatchAction(
   _prevState: FormState,
@@ -39,6 +28,7 @@ export async function createMatchAction(
   const deckId = String(formData.get("deckId") ?? "");
   if (!deckId) return { error: "Choose a deck." };
   const spriteInstanceIdInput = String(formData.get("spriteInstanceId") ?? "");
+  const isPrivate = String(formData.get("visibility") ?? "private") !== "public";
 
   let deck;
   let spriteInstanceId: string | null;
@@ -57,6 +47,7 @@ export async function createMatchAction(
     creatorUserId: session.user.id,
     creatorDeckId: deck.id,
     creatorSpriteInstanceId: spriteInstanceId,
+    isPrivate,
   });
 
   redirect(`/play/${match.id}`);
@@ -250,14 +241,16 @@ export async function confirmResultAction(formData: FormData) {
       where: { matchId },
       select: { id: true, winnerId: true, loserId: true, xpAwardedAt: true },
     });
+    const matchWithPlayers = await tx.match.findUniqueOrThrow({
+      where: { id: matchId },
+      select: {
+        eventId: true,
+        format: { select: { name: true } },
+        players: { select: { userId: true, spriteInstanceId: true } },
+      },
+    });
+
     if (!result.xpAwardedAt) {
-      const matchWithPlayers = await tx.match.findUniqueOrThrow({
-        where: { id: matchId },
-        select: {
-          format: { select: { name: true } },
-          players: { select: { userId: true, spriteInstanceId: true } },
-        },
-      });
       const winnerSpriteInstanceId =
         matchWithPlayers.players.find((p) => p.userId === result.winnerId)
           ?.spriteInstanceId ?? null;
@@ -277,6 +270,55 @@ export async function confirmResultAction(formData: FormData) {
         where: { id: result.id },
         data: { xpAwardedAt: new Date() },
       });
+    }
+
+    // If this match is one round of an Event's best-of-X series, check
+    // whether the series is now decided and, if so, complete the event
+    // and award event XP — same atomic-transition + xpAwardedAt guard
+    // pattern as declareWinnerAction, so this can never double-fire even
+    // if a future round were somehow confirmed again.
+    if (matchWithPlayers.eventId) {
+      const event = await tx.event.findUniqueOrThrow({
+        where: { id: matchWithPlayers.eventId },
+        select: {
+          id: true,
+          bestOf: true,
+          status: true,
+          xpAwardedAt: true,
+          format: { select: { name: true } },
+          players: { select: { userId: true, spriteInstanceId: true } },
+        },
+      });
+      if (event.bestOf && event.status === "IN_PROGRESS") {
+        const roundWins = await getEventRoundWins(event.id, tx);
+        const target = matchesToWinFor(event.bestOf);
+        const seriesWinnerId = event.players
+          .map((p) => p.userId)
+          .find((userId) => (roundWins[userId] ?? 0) >= target);
+
+        if (seriesWinnerId) {
+          const updatedEvent = await tx.event.updateMany({
+            where: { id: event.id, status: "IN_PROGRESS" },
+            data: {
+              status: "COMPLETED",
+              winnerId: seriesWinnerId,
+              finishedAt: new Date(),
+            },
+          });
+          if (updatedEvent.count > 0 && !event.xpAwardedAt) {
+            await awardEventXp(tx, {
+              eventId: event.id,
+              formatName: event.format.name,
+              winnerUserId: seriesWinnerId,
+              participants: event.players,
+            });
+            await tx.event.update({
+              where: { id: event.id },
+              data: { xpAwardedAt: new Date() },
+            });
+          }
+        }
+      }
     }
   });
 
