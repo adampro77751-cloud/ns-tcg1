@@ -179,6 +179,7 @@ model SpriteInstance {
   history        SpriteHistoryEntry[]
   redemptionCode RedemptionCode?
   matchPlayers   MatchPlayer[]
+  eventPlayers   EventPlayer[]
 
   @@index([ownerId])
   @@index([spriteId])
@@ -453,6 +454,11 @@ model Event {
   winnerId    String?
   winner      User?       @relation("EventWinner", fields: [winnerId], references: [id])
 
+  // Set exactly once, in the same transaction that declares a winner and
+  // moves the Event to COMPLETED — mirrors MatchResult.xpAwardedAt as a
+  // guard against ever awarding Sprite XP for the same event twice.
+  xpAwardedAt DateTime?
+
   players EventPlayer[]
 
   @@index([organizerId])
@@ -466,8 +472,16 @@ model EventPlayer {
   user     User     @relation(fields: [userId], references: [id])
   deckId   String?
   deck     Deck?    @relation(fields: [deckId], references: [id])
+
+  // The individual owned SpriteInstance this player equipped for the
+  // event, if any — same "No Sprite is legitimate, always validated
+  // server-side against ownership" rules as MatchPlayer.spriteInstanceId.
+  spriteInstanceId String?
+  spriteInstance    SpriteInstance? @relation(fields: [spriteInstanceId], references: [id], onDelete: SetNull)
+
   joinedAt DateTime @default(now())
 
   @@unique([eventId, userId])
   @@index([userId])
+  @@index([spriteInstanceId])
 }

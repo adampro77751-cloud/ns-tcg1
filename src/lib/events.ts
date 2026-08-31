@@ -48,7 +48,17 @@ export function getEventDetails(eventId: string) {
       winner: { select: { id: true, username: true } },
       players: {
         orderBy: { joinedAt: "asc" },
-        include: { user: { select: { id: true, username: true } } },
+        include: {
+          user: { select: { id: true, username: true } },
+          spriteInstance: {
+            select: {
+              id: true,
+              name: true,
+              level: true,
+              sprite: { select: { name: true, rarity: true } },
+            },
+          },
+        },
       },
     },
   });

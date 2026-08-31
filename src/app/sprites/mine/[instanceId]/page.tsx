@@ -27,10 +27,14 @@ function describeHistoryEntry(
       return `Renamed from "${String(d.previousName ?? "?")}" to "${String(d.newName ?? "?")}".`;
     case "LEVEL_UP":
       return `Leveled up from ${String(d.previousLevel ?? "?")} to ${String(d.newLevel ?? "?")}${d.maxLevel ? " — MAX LEVEL" : ""}.`;
-    case "MATCH_WON":
-      return `Won a ${String(d.formatName ?? "")} match.`.replace(/\s+/g, " ");
-    case "MATCH_PLAYED":
-      return `Played a ${String(d.formatName ?? "")} match.`.replace(/\s+/g, " ");
+    case "MATCH_WON": {
+      const noun = d.source === "EVENT" ? "event" : "match";
+      return `Won a ${String(d.formatName ?? "")} ${noun}.`.replace(/\s+/g, " ");
+    }
+    case "MATCH_PLAYED": {
+      const noun = d.source === "EVENT" ? "event" : "match";
+      return `Played a ${String(d.formatName ?? "")} ${noun}.`.replace(/\s+/g, " ");
+    }
     case "XP_GAINED":
       return `+${String(d.xpGained ?? "?")} XP (total ${String(d.totalXp ?? "?")}).`;
     default:
@@ -179,6 +183,14 @@ export default async function SpriteInstancePage({
         <div>
           <dt className="text-zinc-500">Matches won</dt>
           <dd>{stats.matchesWon}</dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Events played</dt>
+          <dd>{stats.eventsPlayed}</dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Events won</dt>
+          <dd>{stats.eventsWon}</dd>
         </div>
         <div>
           <dt className="text-zinc-500">Win rate</dt>

@@ -12,6 +12,8 @@ import {
   MAX_MAX_PLAYERS,
 } from "@/lib/events";
 import { normalizeJoinCode } from "@/lib/join-code";
+import { resolveOwnedSpriteInstance } from "@/lib/sprite-ownership";
+import { awardEventXp } from "@/lib/sprite-progression";
 
 export type FormState = {
   error: string | null;
@@ -83,8 +85,13 @@ export async function joinEventAction(formData: FormData) {
   if (!session?.user) redirect("/login");
 
   const eventId = String(formData.get("eventId") ?? "");
+  const spriteInstanceIdInput = String(formData.get("spriteInstanceId") ?? "");
 
   try {
+    const spriteInstanceId = await resolveOwnedSpriteInstance(
+      spriteInstanceIdInput,
+      session.user.id,
+    );
     await prisma.$transaction(async (tx) => {
       const event = await tx.event.findUnique({
         where: { id: eventId },
@@ -104,7 +111,7 @@ export async function joinEventAction(formData: FormData) {
       // The @@unique([eventId, userId]) constraint also blocks joining
       // twice under a concurrent double-submit.
       await tx.eventPlayer.create({
-        data: { eventId, userId: session.user.id },
+        data: { eventId, userId: session.user.id, spriteInstanceId },
       });
     });
   } catch {
@@ -164,9 +171,39 @@ export async function declareWinnerAction(formData: FormData) {
     redirect(`/events/${eventId}?error=invalid-winner`);
   }
 
-  await prisma.event.updateMany({
-    where: { id: eventId, status: "IN_PROGRESS" },
-    data: { status: "COMPLETED", winnerId, finishedAt: new Date() },
+  await prisma.$transaction(async (tx) => {
+    // Atomic compare-and-set: only an IN_PROGRESS event can be completed
+    // here, and this can only ever succeed once per event — nothing in
+    // this codebase ever moves a COMPLETED event back to IN_PROGRESS. That
+    // makes the XP award below idempotent by construction, the same way
+    // confirmResultAction's PENDING -> CONFIRMED transition does for
+    // matches. The xpAwardedAt check is a second, independent guard.
+    const updated = await tx.event.updateMany({
+      where: { id: eventId, status: "IN_PROGRESS" },
+      data: { status: "COMPLETED", winnerId, finishedAt: new Date() },
+    });
+    if (updated.count === 0) return;
+
+    const event = await tx.event.findUniqueOrThrow({
+      where: { id: eventId },
+      select: {
+        xpAwardedAt: true,
+        format: { select: { name: true } },
+        players: { select: { userId: true, spriteInstanceId: true } },
+      },
+    });
+    if (!event.xpAwardedAt) {
+      await awardEventXp(tx, {
+        eventId,
+        formatName: event.format.name,
+        winnerUserId: winnerId,
+        participants: event.players,
+      });
+      await tx.event.update({
+        where: { id: eventId },
+        data: { xpAwardedAt: new Date() },
+      });
+    }
   });
 
   revalidatePath(`/events/${eventId}`);

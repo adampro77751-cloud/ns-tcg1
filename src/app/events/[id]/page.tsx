@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import { getEventDetails, MIN_EVENT_PLAYERS } from "@/lib/events";
 import {
   joinEventAction,
@@ -29,6 +30,24 @@ export default async function EventDetailPage({
   const isPlayer = event.players.some((p) => p.userId === session?.user?.id);
   const isFull = event.players.length >= event.maxPlayers;
   const errorParam = typeof search.error === "string" ? search.error : null;
+
+  let joinSprites: { id: string; label: string }[] = [];
+  if (session?.user && !isPlayer && !isFull && event.status === "REGISTRATION") {
+    const spriteInstances = await prisma.spriteInstance.findMany({
+      where: { ownerId: session.user.id },
+      select: {
+        id: true,
+        name: true,
+        level: true,
+        sprite: { select: { name: true, rarity: true } },
+      },
+      orderBy: [{ sprite: { name: "asc" } }, { obtainedAt: "asc" }],
+    });
+    joinSprites = spriteInstances.map((s) => ({
+      id: s.id,
+      label: `${s.name} — ${s.sprite.name}${s.sprite.rarity ? ` (${s.sprite.rarity})` : ""} — Level ${s.level}${s.level >= 5 ? " MAX" : ""}`,
+    }));
+  }
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
@@ -62,15 +81,30 @@ export default async function EventDetailPage({
             key={p.userId}
             className="flex items-center justify-between rounded border border-zinc-200 px-3 py-2"
           >
-            <Link href={`/player/${p.user.username}`} className="hover:underline">
-              {p.user.username}
-            </Link>
-            {p.userId === event.organizerId && (
-              <span className="text-xs text-zinc-400">Organiser</span>
-            )}
-            {event.winnerId === p.userId && (
-              <span className="text-xs font-semibold text-green-700">Winner</span>
-            )}
+            <div>
+              <Link href={`/player/${p.user.username}`} className="hover:underline">
+                {p.user.username}
+              </Link>
+              <div className="text-xs text-zinc-500">
+                {p.spriteInstance ? (
+                  <>
+                    {p.spriteInstance.name} · {p.spriteInstance.sprite.name} ·
+                    Level {p.spriteInstance.level}
+                    {p.spriteInstance.level >= 5 ? " — MAX LEVEL" : ""}
+                  </>
+                ) : (
+                  "No Sprite"
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {p.userId === event.organizerId && (
+                <span className="text-xs text-zinc-400">Organiser</span>
+              )}
+              {event.winnerId === p.userId && (
+                <span className="text-xs font-semibold text-green-700">Winner</span>
+              )}
+            </div>
           </li>
         ))}
       </ul>
@@ -78,8 +112,20 @@ export default async function EventDetailPage({
       {event.status === "REGISTRATION" && (
         <div className="mt-6 flex flex-wrap items-center gap-3">
           {session?.user && !isPlayer && !isFull && (
-            <form action={joinEventAction}>
+            <form action={joinEventAction} className="flex items-center gap-2">
               <input type="hidden" name="eventId" value={event.id} />
+              <select
+                name="spriteInstanceId"
+                defaultValue=""
+                className="rounded border border-zinc-300 px-3 py-1.5 text-sm outline-none focus:border-blue-600"
+              >
+                <option value="">No Sprite</option>
+                {joinSprites.map((sprite) => (
+                  <option key={sprite.id} value={sprite.id}>
+                    {sprite.label}
+                  </option>
+                ))}
+              </select>
               <button
                 type="submit"
                 className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
