@@ -92,7 +92,7 @@ async function main() {
     update: {
       minDeckSize: 10,
       maxDeckSize: 10,
-      maxCopiesPerCard: 3,
+      maxCopiesPerCard: 2,
       startingHand: 3,
       startingHealth: 200,
       allowedSets: serializeAllowedSets(null),
@@ -103,7 +103,7 @@ async function main() {
       description: "A fast 10-card NS TCG format.",
       minDeckSize: 10,
       maxDeckSize: 10,
-      maxCopiesPerCard: 3,
+      maxCopiesPerCard: 2,
       startingHand: 3,
       startingHealth: 200,
       allowedSets: serializeAllowedSets(null),
