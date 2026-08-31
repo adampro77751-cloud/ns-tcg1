@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -11,14 +12,14 @@ export default async function SpriteDetailPage({
   const sprite = await prisma.sprite.findUnique({ where: { slug } });
   if (!sprite) notFound();
 
-  const ownedEditions = session?.user
-    ? await prisma.userSprite.findMany({
-        where: { userId: session.user.id, spriteId: sprite.id },
-        select: { quantity: true, edition: { select: { name: true } } },
-        orderBy: { edition: { name: "asc" } },
+  const ownedInstances = session?.user
+    ? await prisma.spriteInstance.findMany({
+        where: { ownerId: session.user.id, spriteId: sprite.id },
+        select: { id: true, name: true, edition: { select: { name: true } } },
+        orderBy: { obtainedAt: "asc" },
       })
     : [];
-  const owned = ownedEditions.length > 0;
+  const owned = ownedInstances.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
@@ -38,23 +39,24 @@ export default async function SpriteDetailPage({
                 : "bg-zinc-100 text-zinc-500")
             }
           >
-            {owned ? "Owned" : "Not owned"}
+            {owned ? `Owned ×${ownedInstances.length}` : "Not owned"}
           </span>
         )}
       </div>
 
-      {ownedEditions.length > 0 && (
-        <ul className="mt-3 flex flex-wrap gap-2">
-          {ownedEditions.map((o) => (
-            <li
-              key={o.edition.name}
-              className="rounded border border-green-200 bg-green-50 px-2 py-1 text-xs text-green-800"
-            >
-              {o.edition.name}
-              {o.quantity > 1 ? ` ×${o.quantity}` : ""}
-            </li>
-          ))}
-        </ul>
+      {owned && (
+        <div className="mt-3 rounded border border-green-200 bg-green-50 px-4 py-3">
+          <p className="text-sm text-green-900">
+            You own {ownedInstances.length}{" "}
+            {ownedInstances.length === 1 ? "copy" : "copies"} of this Sprite.
+          </p>
+          <Link
+            href="/sprites/mine"
+            className="mt-1 inline-block text-sm font-medium text-green-800 underline"
+          >
+            View them in My Sprites
+          </Link>
+        </div>
       )}
 
       {sprite.description && (

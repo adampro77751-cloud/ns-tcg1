@@ -32,7 +32,7 @@ model User {
 
   profile PlayerProfile?
 
-  ownedSprites   UserSprite[]
+  ownedSprites   SpriteInstance[]
   redeemedCodes  RedemptionCode[] @relation("RedeemedBy")
   createdSpriteCodeBatches SpriteCodeBatch[]
   decks          Deck[]
@@ -88,19 +88,25 @@ model Card {
   restrictedInFormats  FormatRestrictedCard[]
 }
 
+enum SpriteRarity {
+  RARE
+  MYTHIC
+  LEGENDARY
+}
+
 model Sprite {
-  id          String    @id @default(cuid())
+  id          String        @id @default(cuid())
   name        String
-  slug        String    @unique
-  rarity      String?
+  slug        String        @unique
+  rarity      SpriteRarity?
   description String?
   rulesText   String?
   image       String?
   set         String?
   releaseDate DateTime?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime      @default(now())
 
-  owners          UserSprite[]
+  instances       SpriteInstance[]
   redemptionCodes RedemptionCode[]
   codeBatches     SpriteCodeBatch[]
 }
@@ -115,29 +121,76 @@ model Edition {
   slug      String   @unique
   createdAt DateTime @default(now())
 
-  userSprites     UserSprite[]
+  spriteInstances SpriteInstance[]
   redemptionCodes RedemptionCode[]
   codeBatches     SpriteCodeBatch[]
 }
 
-// Ownership join table between User and Sprite+Edition. Quantity supports
-// the same Sprite+Edition being unlocked more than once (e.g. via multiple
-// redemption codes). Edition is part of the identity — owning "Fire Sprite,
-// 1st Edition" is tracked separately from a future "Fire Sprite, 2nd
-// Edition" would be.
-model UserSprite {
-  id         String   @id @default(cuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  spriteId   String
-  sprite     Sprite   @relation(fields: [spriteId], references: [id], onDelete: Cascade)
-  editionId  String
-  edition    Edition  @relation(fields: [editionId], references: [id])
-  quantity   Int      @default(1)
-  obtainedAt DateTime @default(now())
+enum SpriteObtainMethod {
+  REDEMPTION_CODE
+  ADMIN_GRANT
+  UNKNOWN
+}
 
-  @@unique([userId, spriteId, editionId])
-  @@index([userId])
+enum SpriteHistoryEventType {
+  OBTAINED
+  RENAMED
+  LEVEL_UP
+}
+
+// An individually owned Sprite. Every redeemed/obtained Sprite is its own
+// row with its own identity, custom name, level, and history — NOT a
+// quantity counter. Owning three Fire Sprites means three SpriteInstance
+// rows, each independently nameable and (eventually) independently
+// levelling.
+model SpriteInstance {
+  id        String   @id @default(cuid())
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  spriteId  String
+  sprite    Sprite   @relation(fields: [spriteId], references: [id], onDelete: Cascade)
+  editionId String
+  edition   Edition  @relation(fields: [editionId], references: [id])
+
+  // Player-given nickname. Defaults to the base Sprite's name when the
+  // instance is created; the base type/rarity/edition always remain
+  // visible via the `sprite`/`edition` relations regardless of nickname.
+  name String
+
+  // Not yet wired to any progression mechanic — NS TCG's actual levelling
+  // rules (XP requirements, max level, triggers, rewards, etc.) have not
+  // been defined. Nothing in this codebase currently changes this value;
+  // it exists so the architecture is ready once real rules are provided.
+  // Every mutation path must validate server-side and never trust a
+  // client-submitted level/XP value.
+  level Int @default(1)
+
+  obtainedMethod SpriteObtainMethod @default(UNKNOWN)
+  obtainedAt     DateTime           @default(now())
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  history        SpriteHistoryEntry[]
+  redemptionCode RedemptionCode?
+
+  @@index([ownerId])
+  @@index([spriteId])
+}
+
+// Append-only, server-generated activity log for one SpriteInstance.
+// `detail` is structured JSON (shape depends on `type`) rather than
+// free-text, so it stays machine-readable and the event set can grow
+// later (e.g. LEVEL_UP once real levelling rules exist) without a schema
+// change. Never populated from client-submitted data.
+model SpriteHistoryEntry {
+  id               String                 @id @default(cuid())
+  spriteInstanceId String
+  spriteInstance   SpriteInstance         @relation(fields: [spriteInstanceId], references: [id], onDelete: Cascade)
+  type             SpriteHistoryEventType
+  detail           Json
+  createdAt        DateTime               @default(now())
+
+  @@index([spriteInstanceId])
 }
 
 // A batch of RedemptionCodes generated together by an admin for a specific
@@ -177,6 +230,11 @@ model RedemptionCode {
   redeemedBy   User?     @relation("RedeemedBy", fields: [redeemedById], references: [id])
   redeemedAt   DateTime?
   createdAt    DateTime  @default(now())
+
+  // The individual SpriteInstance this code created, once redeemed —
+  // preserves exactly which code produced which owned Sprite.
+  spriteInstanceId String?         @unique
+  spriteInstance    SpriteInstance? @relation(fields: [spriteInstanceId], references: [id])
 
   @@index([redeemedById])
   @@index([batchId])

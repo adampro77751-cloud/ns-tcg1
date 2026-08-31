@@ -1,9 +1,10 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { redeemAction, type RedeemState } from "@/lib/actions/redeem-actions";
 
-const initialState: RedeemState = { error: null, sprite: null };
+const initialState: RedeemState = { error: null, result: null };
 
 export function RedeemForm({ initialCode }: { initialCode: string }) {
   const [state, formAction, pending] = useActionState(
@@ -29,10 +30,16 @@ export function RedeemForm({ initialCode }: { initialCode: string }) {
         />
       </div>
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
-      {state.sprite && (
+      {state.result && (
         <p className="rounded border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-          Success! You unlocked <strong>{state.sprite.name}</strong> (
-          {state.sprite.editionName}).
+          Success! You unlocked <strong>{state.result.spriteName}</strong> (
+          {state.result.editionName}).{" "}
+          <Link
+            href={`/sprites/mine/${state.result.instanceId}`}
+            className="font-medium underline"
+          >
+            View it
+          </Link>
         </p>
       )}
       <button

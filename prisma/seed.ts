@@ -1,18 +1,17 @@
 import { prisma } from "../src/lib/prisma";
 import { serializeAllowedSets } from "../src/lib/formats";
 
-// Real NS TCG Sprites. Only fields actually provided are set — rarity,
-// description, rulesText, image, set, and releaseDate are intentionally
-// left unset rather than invented. See the seed log for which rarities
-// still need to be specified.
+// Real NS TCG Sprites. Rarity is authoritative (given). description,
+// rulesText, image, set, and releaseDate are intentionally left unset
+// rather than invented.
 const sprites = [
-  { name: "Water Sprite", slug: "water-sprite" },
-  { name: "Fire Sprite", slug: "fire-sprite" },
-  { name: "Air Sprite", slug: "air-sprite" },
-  { name: "Earth Sprite", slug: "earth-sprite" },
-  { name: "Ninja Sprite", slug: "ninja-sprite" },
-  { name: "Dragon Sprite", slug: "dragon-sprite" },
-  { name: "Cosmic Sprite", slug: "cosmic-sprite" },
+  { name: "Water Sprite", slug: "water-sprite", rarity: "RARE" as const },
+  { name: "Fire Sprite", slug: "fire-sprite", rarity: "RARE" as const },
+  { name: "Air Sprite", slug: "air-sprite", rarity: "RARE" as const },
+  { name: "Earth Sprite", slug: "earth-sprite", rarity: "RARE" as const },
+  { name: "Ninja Sprite", slug: "ninja-sprite", rarity: "MYTHIC" as const },
+  { name: "Dragon Sprite", slug: "dragon-sprite", rarity: "MYTHIC" as const },
+  { name: "Cosmic Sprite", slug: "cosmic-sprite", rarity: "LEGENDARY" as const },
 ];
 
 const editions = [{ name: "1st Edition", slug: "1st-edition" }];
@@ -34,8 +33,7 @@ async function main() {
     });
   }
   console.log(
-    `Seeded ${sprites.length} Sprites (${editions.map((e) => e.name).join(", ")}). ` +
-      `Rarity is unset for all of them — specify rarities when you have them.`,
+    `Seeded ${sprites.length} Sprites (${editions.map((e) => e.name).join(", ")}).`,
   );
 
   // Deck-building formats. Unrelated to Sprites/cards; left as-is. Banned

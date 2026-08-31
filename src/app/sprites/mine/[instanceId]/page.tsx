@@ -1,0 +1,169 @@
+import { notFound } from "next/navigation";
+import Link from "next/link";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { RenameSpriteForm } from "./rename-sprite-form";
+
+const RARITY_STYLES: Record<string, string> = {
+  RARE: "bg-blue-100 text-blue-800",
+  MYTHIC: "bg-purple-100 text-purple-800",
+  LEGENDARY: "bg-amber-100 text-amber-800",
+};
+
+function describeHistoryEntry(
+  type: string,
+  detail: unknown,
+): string {
+  const d = (detail ?? {}) as Record<string, unknown>;
+  switch (type) {
+    case "OBTAINED":
+      if (d.migratedFromAggregateOwnership) {
+        return "Obtained (converted from earlier aggregate ownership record).";
+      }
+      return "Obtained via redemption code.";
+    case "RENAMED":
+      return `Renamed from "${String(d.previousName ?? "?")}" to "${String(d.newName ?? "?")}".`;
+    case "LEVEL_UP":
+      return `Leveled up from ${String(d.previousLevel ?? "?")} to ${String(d.newLevel ?? "?")}.`;
+    default:
+      return type;
+  }
+}
+
+export default async function SpriteInstancePage({
+  params,
+}: PageProps<"/sprites/mine/[instanceId]">) {
+  const { instanceId } = await params;
+  const session = await auth();
+
+  const instance = await prisma.spriteInstance.findUnique({
+    where: { id: instanceId },
+    select: {
+      id: true,
+      name: true,
+      level: true,
+      obtainedAt: true,
+      obtainedMethod: true,
+      ownerId: true,
+      owner: { select: { username: true } },
+      sprite: {
+        select: {
+          name: true,
+          slug: true,
+          rarity: true,
+          image: true,
+          description: true,
+          rulesText: true,
+        },
+      },
+      edition: { select: { name: true } },
+      history: {
+        orderBy: { createdAt: "desc" },
+        select: { id: true, type: true, detail: true, createdAt: true },
+      },
+    },
+  });
+  if (!instance) notFound();
+
+  const isOwner = session?.user?.id === instance.ownerId;
+
+  return (
+    <div className="mx-auto w-full max-w-2xl px-4 py-12">
+      <Link
+        href={isOwner ? "/sprites/mine" : `/sprites/${instance.sprite.slug}`}
+        className="text-sm text-blue-600"
+      >
+        {isOwner ? "← My Sprites" : `← ${instance.sprite.name}`}
+      </Link>
+
+      <div className="mt-2 flex items-start justify-between">
+        <div>
+          {isOwner ? (
+            <RenameSpriteForm instanceId={instance.id} initialName={instance.name} />
+          ) : (
+            <h1 className="text-3xl font-bold tracking-tight">{instance.name}</h1>
+          )}
+          <p className="mt-1 text-sm text-zinc-500">
+            {instance.sprite.name}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {instance.sprite.rarity && (
+          <span
+            className={
+              "rounded px-2 py-1 text-xs font-semibold uppercase " +
+              (RARITY_STYLES[instance.sprite.rarity] ?? "bg-zinc-100 text-zinc-600")
+            }
+          >
+            {instance.sprite.rarity}
+          </span>
+        )}
+        <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600">
+          {instance.edition.name}
+        </span>
+        <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600">
+          Level {instance.level}
+        </span>
+      </div>
+
+      {instance.sprite.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={instance.sprite.image}
+          alt={instance.sprite.name}
+          className="mt-6 max-h-80 rounded border border-zinc-200 object-contain"
+        />
+      )}
+
+      {instance.sprite.description && (
+        <p className="mt-6 text-sm text-zinc-700">{instance.sprite.description}</p>
+      )}
+
+      {instance.sprite.rulesText && (
+        <div className="mt-4 rounded border border-zinc-200 bg-zinc-50 px-4 py-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Rules text
+          </h2>
+          <p className="mt-1 text-sm text-zinc-800">{instance.sprite.rulesText}</p>
+        </div>
+      )}
+
+      <dl className="mt-6 grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt className="text-zinc-500">Owner</dt>
+          <dd>
+            <Link
+              href={`/player/${instance.owner.username}`}
+              className="text-blue-600 hover:underline"
+            >
+              {instance.owner.username}
+            </Link>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Date obtained</dt>
+          <dd>{instance.obtainedAt.toLocaleDateString()}</dd>
+        </div>
+      </dl>
+
+      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        History
+      </h2>
+      <ul className="mt-3 flex flex-col gap-2">
+        {instance.history.map((entry) => (
+          <li
+            key={entry.id}
+            className="flex items-center justify-between rounded border border-zinc-200 px-3 py-2 text-sm"
+          >
+            <span>{describeHistoryEntry(entry.type, entry.detail)}</span>
+            <span className="shrink-0 text-xs text-zinc-500">
+              {entry.createdAt.toLocaleDateString()}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
