@@ -4,6 +4,11 @@ import { JoinEventByCodeForm } from "./join-event-by-code-form";
 
 export default async function EventsPage() {
   const events = await prisma.event.findMany({
+    // Once an event is COMPLETED or CANCELLED it's no longer joinable, so
+    // it's dropped from this public listing to keep it current — the event
+    // itself, its results, and any Sprite XP/history it produced are never
+    // deleted, and it's still reachable directly via its join code/URL.
+    where: { status: { in: ["REGISTRATION", "IN_PROGRESS"] } },
     orderBy: { createdAt: "desc" },
     take: 30,
     select: {
