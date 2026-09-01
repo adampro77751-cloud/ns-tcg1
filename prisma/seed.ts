@@ -16,6 +16,19 @@ const sprites = [
 
 const editions = [{ name: "1st Edition", slug: "1st-edition" }];
 
+// New Mythic-rarity Cards. type/attack/defence/speed/rulesText/image/set
+// are intentionally left unset rather than invented.
+const cards = [
+  { name: "Valpy", slug: "valpy", rarity: "MYTHIC" as const },
+  { name: "Parker", slug: "parker", rarity: "MYTHIC" as const },
+  { name: "School", slug: "school", rarity: "MYTHIC" as const },
+  { name: "Repton", slug: "repton", rarity: "MYTHIC" as const },
+  { name: "Seagrim", slug: "seagrim", rarity: "MYTHIC" as const },
+  { name: "Nelson", slug: "nelson", rarity: "MYTHIC" as const },
+  { name: "Coke", slug: "coke", rarity: "MYTHIC" as const },
+  { name: "Brooke", slug: "brooke", rarity: "MYTHIC" as const },
+];
+
 async function main() {
   for (const edition of editions) {
     await prisma.edition.upsert({
@@ -35,6 +48,15 @@ async function main() {
   console.log(
     `Seeded ${sprites.length} Sprites (${editions.map((e) => e.name).join(", ")}).`,
   );
+
+  for (const card of cards) {
+    await prisma.card.upsert({
+      where: { slug: card.slug },
+      update: card,
+      create: card,
+    });
+  }
+  console.log(`Seeded ${cards.length} Cards.`);
 
   // The three NS TCG formats. Banned and restricted cards aren't seeded
   // here since no real Card data exists yet — add those once real cards

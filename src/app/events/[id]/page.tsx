@@ -12,6 +12,8 @@ import {
 } from "@/lib/actions/event-actions";
 import { DeclareWinnerForm } from "./declare-winner-form";
 import { StartRoundForm } from "./start-round-form";
+import { AutoRefresh } from "@/components/auto-refresh";
+import { RefreshButton } from "@/components/refresh-button";
 
 const ERROR_MESSAGES: Record<string, string> = {
   "not-enough-players": `You need at least ${MIN_EVENT_PLAYERS} players to start.`,
@@ -92,18 +94,29 @@ export default async function EventDetailPage({
     }));
   }
 
+  // Poll while the event can still change (accepting joiners or a series in
+  // progress); stop once it's COMPLETED or CANCELLED.
+  const isLive = event.status === "REGISTRATION" || event.status === "IN_PROGRESS";
+
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
+      {isLive && <AutoRefresh intervalMs={7000} />}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{event.name}</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            {event.format.name} · organised by {event.organizer.username}
+            {event.format.name} · organised by{" "}
+            <Link href={`/player/${event.organizer.username}`} className="hover:underline">
+              {event.organizer.username}
+            </Link>
           </p>
         </div>
-        <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-semibold uppercase text-zinc-600">
-          {event.status.replace("_", " ")}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-semibold uppercase text-zinc-600">
+            {event.status.replace("_", " ")}
+          </span>
+          {isLive && <RefreshButton />}
+        </div>
       </div>
       <p className="mt-1 font-mono text-sm text-zinc-500">
         Join code: {event.joinCode}

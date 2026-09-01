@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { xpProgress } from "@/lib/xp";
 import { getSpriteInstanceMatchStats } from "@/lib/sprite-stats";
 import { RenameSpriteForm } from "./rename-sprite-form";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 const RARITY_STYLES: Record<string, string> = {
   RARE: "bg-blue-100 text-blue-800",
@@ -84,6 +85,7 @@ export default async function SpriteInstancePage({
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
+      <AutoRefresh intervalMs={15000} />
       <Link
         href={isOwner ? "/sprites/mine" : `/sprites/${instance.sprite.slug}`}
         className="text-sm text-blue-600"

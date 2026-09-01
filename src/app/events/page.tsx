@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { JoinEventByCodeForm } from "./join-event-by-code-form";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 export default async function EventsPage() {
   const events = await prisma.event.findMany({
@@ -24,6 +25,7 @@ export default async function EventsPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-12">
+      <AutoRefresh intervalMs={10000} />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Events</h1>
         <Link

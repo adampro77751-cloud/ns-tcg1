@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { MAX_SPRITE_LEVEL } from "@/lib/xp";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 const RARITY_STYLES: Record<string, string> = {
   RARE: "bg-blue-100 text-blue-800",
@@ -29,6 +30,7 @@ export default async function MySpritesPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-12">
+      <AutoRefresh intervalMs={15000} />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">My Sprites</h1>
         <Link

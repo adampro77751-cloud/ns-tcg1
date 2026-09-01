@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getDeckLegality } from "@/lib/decks";
 import { StartMatchForm } from "./start-match-form";
 import { JoinMatchForm } from "./join-match-form";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 export default async function PlayPage() {
   const session = await auth();
@@ -75,6 +76,7 @@ export default async function PlayPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-12">
+      <AutoRefresh intervalMs={10000} />
       <h1 className="text-2xl font-bold tracking-tight">Play</h1>
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2">

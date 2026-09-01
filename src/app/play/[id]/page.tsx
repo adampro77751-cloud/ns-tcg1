@@ -11,6 +11,8 @@ import {
   cancelMatchAction,
 } from "@/lib/actions/match-actions";
 import { JoinMatchDeckForm } from "./join-match-deck-form";
+import { AutoRefresh } from "@/components/auto-refresh";
+import { RefreshButton } from "@/components/refresh-button";
 
 const ERROR_MESSAGES: Record<string, string> = {
   "not-in-progress": "This match isn't in a state to report a result.",
@@ -80,15 +82,23 @@ export default async function MatchDetailPage({
     }));
   }
 
+  // Only poll while something could still change — a completed/cancelled
+  // match is frozen forever, so stop hitting the server for it entirely.
+  const isLive = match.status !== "COMPLETED" && match.status !== "CANCELLED";
+
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
+      {isLive && <AutoRefresh intervalMs={6000} />}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">
           {match.format.name} match
         </h1>
-        <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-semibold uppercase text-zinc-600">
-          {match.status.replace("_", " ")}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-semibold uppercase text-zinc-600">
+            {match.status.replace("_", " ")}
+          </span>
+          {isLive && <RefreshButton />}
+        </div>
       </div>
       <p className="mt-1 font-mono text-sm text-zinc-500">
         Join code: {match.joinCode}
@@ -275,7 +285,11 @@ function PlayerBlock({
   return (
     <div>
       <div className="text-xs text-zinc-400">{label}</div>
-      <div className="font-semibold">{player.user.username}</div>
+      <div className="font-semibold">
+        <Link href={`/player/${player.user.username}`} className="hover:underline">
+          {player.user.username}
+        </Link>
+      </div>
       <div className="text-xs text-zinc-500">{player.deck.name}</div>
       <div className="mt-1 text-xs text-zinc-500">
         {player.spriteInstance ? (
