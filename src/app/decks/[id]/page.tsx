@@ -55,7 +55,17 @@ export default async function DeckDetailPage({
   const allCards = isOwner
     ? await prisma.card.findMany({
         orderBy: { name: "asc" },
-        select: { id: true, name: true, set: true, type: true, rarity: true },
+        select: {
+          id: true,
+          name: true,
+          set: true,
+          type: true,
+          rarity: true,
+          attack: true,
+          defence: true,
+          speed: true,
+          rulesText: true,
+        },
       })
     : [];
 
@@ -122,7 +132,7 @@ export default async function DeckDetailPage({
               <div>
                 <span className="font-medium">{card.name}</span>{" "}
                 <span className="text-xs text-zinc-500">
-                  {[card.type, card.set].filter(Boolean).join(" · ")}
+                  {[card.type, card.rarity, card.set].filter(Boolean).join(" · ")}
                 </span>
               </div>
               <div className="flex items-center gap-2">

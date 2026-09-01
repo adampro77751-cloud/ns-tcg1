@@ -16,17 +16,136 @@ const sprites = [
 
 const editions = [{ name: "1st Edition", slug: "1st-edition" }];
 
-// New Mythic-rarity Cards. type/attack/defence/speed/rulesText/image/set
-// are intentionally left unset rather than invented.
-const cards = [
-  { name: "Valpy", slug: "valpy", rarity: "MYTHIC" as const },
-  { name: "Parker", slug: "parker", rarity: "MYTHIC" as const },
-  { name: "School", slug: "school", rarity: "MYTHIC" as const },
-  { name: "Repton", slug: "repton", rarity: "MYTHIC" as const },
-  { name: "Seagrim", slug: "seagrim", rarity: "MYTHIC" as const },
-  { name: "Nelson", slug: "nelson", rarity: "MYTHIC" as const },
-  { name: "Coke", slug: "coke", rarity: "MYTHIC" as const },
-  { name: "Brooke", slug: "brooke", rarity: "MYTHIC" as const },
+// Real NS TCG Cards. Rarity uses the same Title-Case values already present
+// on the ~40 other Card rows in the database (Common/Rare/Epic/Legendary/
+// Mythic) rather than inventing a second casing convention. Cards whose
+// real rarity is not yet known are given the literal placeholder rarity
+// "TBD" rather than guessing — never left as one of the five real values.
+// attack/defence/speed/rulesText are left unset only where the real card
+// genuinely has none (e.g. Home Clothes Day has no rules text).
+type CardSeed = {
+  name: string;
+  slug: string;
+  type: string;
+  rarity: string;
+  set: string;
+  attack?: number;
+  defence?: number;
+  speed?: number;
+  rulesText?: string;
+};
+
+const cards: CardSeed[] = [
+  {
+    name: "End Of Year Test",
+    slug: "end-of-year-test",
+    type: "Item",
+    rarity: "TBD",
+    set: "1st Edition",
+    attack: 85,
+    defence: 75,
+    speed: 60,
+    rulesText:
+      "If this is in your hand at the beginning of the game, put it into play, then draw 2 cards.",
+  },
+  {
+    name: "Parker",
+    slug: "parker",
+    type: "Spell",
+    rarity: "Legendary",
+    set: "1st Edition",
+    rulesText: "Deal 100 damage to any target. Gain 100 health.",
+  },
+  {
+    name: "Nelson",
+    slug: "nelson",
+    type: "Spell",
+    rarity: "Mythic",
+    set: "1st Edition",
+    rulesText:
+      "Prevent all damage dealt to you this turn. You may play this card on your opponent's turn.",
+  },
+  {
+    name: "Seagrim",
+    slug: "seagrim",
+    type: "Spell",
+    rarity: "Epic",
+    set: "1st Edition",
+    rulesText:
+      "Draw 2 cards. Deal 100 damage to any target. Target opponent discards 2 cards.",
+  },
+  {
+    name: "School",
+    slug: "school",
+    type: "Spell",
+    rarity: "Common",
+    set: "1st Edition",
+    rulesText: "Search your deck for an Item card and put it under your control.",
+  },
+  {
+    name: "Valpy",
+    slug: "valpy",
+    type: "Spell",
+    rarity: "Rare",
+    set: "1st Edition",
+    rulesText: "Draw 3 cards and put up to 2 of those cards into play.",
+  },
+  {
+    name: "Coke",
+    slug: "coke",
+    type: "Spell",
+    rarity: "Rare",
+    set: "1st Edition",
+    rulesText:
+      "Move target Spell or Item your opponent controls into their discard pile. You may play this Spell on your opponent's turn.",
+  },
+  {
+    name: "Repton",
+    slug: "repton",
+    type: "Spell",
+    rarity: "Legendary",
+    set: "1st Edition",
+    rulesText: "Gain control of target Item your opponent controls. Draw a card.",
+  },
+  {
+    name: "Home Clothes Day",
+    slug: "home-clothes-day",
+    type: "Item",
+    rarity: "Mythic",
+    set: "1st Edition",
+    attack: 85,
+    defence: 80,
+    speed: 80,
+  },
+  {
+    name: "Brooke",
+    slug: "brooke",
+    type: "Spell",
+    rarity: "TBD",
+    set: "1st Edition",
+    rulesText: "All Item cards get +100 Attack, +100 Speed and +100 Defense.",
+  },
+  {
+    name: "Pi",
+    slug: "pi",
+    type: "Spell",
+    rarity: "TBD",
+    set: "1st Edition",
+    rulesText:
+      "Return all Spell cards from your discard pile to your hand. You may play them this turn.",
+  },
+  {
+    name: "The Curriculum",
+    slug: "the-curriculum",
+    type: "Champion",
+    rarity: "TBD",
+    set: "1st Edition",
+    attack: 50,
+    defence: 70,
+    speed: 90,
+    rulesText:
+      "When this enters play, choose Spells or Items.\n\nIf Items is chosen, no more Items can be played for the rest of the game.\n\nIf Spells is chosen, no more Spells can be played for the rest of the game.",
+  },
 ];
 
 async function main() {
@@ -49,6 +168,22 @@ async function main() {
     `Seeded ${sprites.length} Sprites (${editions.map((e) => e.name).join(", ")}).`,
   );
 
+  // "The Curriculum" previously existed under a misspelled slug
+  // ("the-curriculam") with only a name/rarity placeholder. Repoint that
+  // existing row at the correct slug first so the upsert below updates it
+  // in place (preserving its id and any references to it) instead of
+  // creating a second, duplicate "The Curriculum" row.
+  const misspelledCurriculum = await prisma.card.findUnique({
+    where: { slug: "the-curriculam" },
+    select: { id: true },
+  });
+  if (misspelledCurriculum) {
+    await prisma.card.update({
+      where: { id: misspelledCurriculum.id },
+      data: { slug: "the-curriculum" },
+    });
+  }
+
   for (const card of cards) {
     await prisma.card.upsert({
       where: { slug: card.slug },
@@ -59,8 +194,8 @@ async function main() {
   console.log(`Seeded ${cards.length} Cards.`);
 
   // The three NS TCG formats. Banned and restricted cards aren't seeded
-  // here since no real Card data exists yet — add those once real cards
-  // are entered. Basic/Historic share the same deck-construction rules
+  // here — add those once the card pool's legality needs diverge.
+  // Basic/Historic share the same deck-construction rules
   // (kept as separate Format rows so their legality can diverge later);
   // Quickfire is fixed at exactly 10 cards.
   const basic = await prisma.format.upsert({
