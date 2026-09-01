@@ -26,13 +26,15 @@ export default async function PlayerProfilePage({
 }: PageProps<"/player/[username]">) {
   const { username } = await params;
 
-  // Only public-safe fields are selected — never email, passwordHash, role,
-  // or any auth/session data.
+  // Only public-safe fields are selected — never email, passwordHash, or
+  // any auth/session data. `role` is selected only to render the "Owner"
+  // tag on the Admin account — its raw value is never rendered directly.
   const user = await prisma.user.findUnique({
     where: { username },
     select: {
       id: true,
       username: true,
+      role: true,
       createdAt: true,
       profile: { select: { displayName: true, bio: true } },
       decks: {
@@ -77,8 +79,13 @@ export default async function PlayerProfilePage({
       <AutoRefresh intervalMs={15000} />
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
+          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             {user.username}
+            {user.role === "ADMIN" && (
+              <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase text-amber-800">
+                Owner
+              </span>
+            )}
           </h1>
           {user.profile?.displayName && (
             <p className="text-zinc-600">{user.profile.displayName}</p>
