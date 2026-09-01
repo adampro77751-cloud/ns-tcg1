@@ -10,7 +10,8 @@ const sprites = [
   { name: "Air Sprite", slug: "air-sprite", rarity: "RARE" as const },
   { name: "Earth Sprite", slug: "earth-sprite", rarity: "RARE" as const },
   { name: "Ninja Sprite", slug: "ninja-sprite", rarity: "MYTHIC" as const },
-  { name: "Dragon Sprite", slug: "dragon-sprite", rarity: "MYTHIC" as const },
+  { name: "Angel Sprite", slug: "angel-sprite", rarity: "MYTHIC" as const },
+  { name: "Devil Sprite", slug: "devil-sprite", rarity: "MYTHIC" as const },
   { name: "Cosmic Sprite", slug: "cosmic-sprite", rarity: "LEGENDARY" as const },
 ];
 
