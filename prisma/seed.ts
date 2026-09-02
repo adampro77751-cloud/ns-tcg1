@@ -72,14 +72,18 @@ const editions = [{ name: "1st Edition", slug: "1st-edition" }];
 // on the ~40 other Card rows in the database (Common/Rare/Epic/Legendary/
 // Mythic) rather than inventing a second casing convention. Cards whose
 // real rarity is not yet known are given the literal placeholder rarity
-// "TBD" rather than guessing — never left as one of the five real values.
+// "TBD" rather than guessing. `rarity: null` is a distinct third state —
+// used only where explicitly told not to guess at all (rather than mark
+// pending) — and, for cards that already had a placeholder rarity in the
+// DB from the original bulk import, deliberately overwrites it, since
+// that placeholder was never confirmed real data.
 // attack/defence/speed/rulesText are left unset only where the real card
 // genuinely has none (e.g. Home Clothes Day has no rules text).
 type CardSeed = {
   name: string;
   slug: string;
   type: string;
-  rarity: string;
+  rarity: string | null;
   set: string;
   attack?: number;
   defence?: number;
@@ -501,6 +505,213 @@ const cards: CardSeed[] = [
     defence: 50,
     speed: 70,
     rulesText: "When this attacks, target player reveals their hand.",
+  },
+  // This batch: rarity is set to null (not "TBD") wherever it wasn't
+  // explicitly given, per an explicit "do not guess, leave unset/null"
+  // instruction — including overwriting a handful of these cards'
+  // pre-existing "Common" placeholder from the original bulk import, since
+  // that value was never confirmed as the real rarity.
+  {
+    name: "Cricket Ball",
+    slug: "cricket-ball",
+    type: "Item",
+    rarity: null,
+    set: "1st Edition",
+    attack: 20,
+    defence: 10,
+    speed: 80,
+    rulesText: "When this enters, draw a card.",
+  },
+  {
+    name: "Mountain Mist",
+    slug: "mountain-mist",
+    type: "Item",
+    rarity: null,
+    set: "1st Edition",
+    attack: 30,
+    defence: 60,
+    speed: 40,
+    rulesText: "Whenever you draw a card, deal 30 damage to target opponent.",
+  },
+  {
+    // Spelling preserved exactly as specified: "Cutlary".
+    name: "Cutlary",
+    slug: "cutlary",
+    type: "Item",
+    rarity: null,
+    set: "1st Edition",
+    attack: 30,
+    defence: 50,
+    speed: 60,
+    rulesText: "Whenever you deal 30 or more damage to a player, draw a card.",
+  },
+  {
+    name: "History",
+    slug: "history",
+    type: "Item",
+    rarity: "Common",
+    set: "1st Edition",
+    attack: 60,
+    defence: 40,
+    speed: 50,
+  },
+  {
+    name: "Tennis Balls",
+    slug: "tennis-balls",
+    type: "Item",
+    rarity: "Common",
+    set: "1st Edition",
+    attack: 55,
+    defence: 45,
+    speed: 60,
+  },
+  {
+    name: "Maths",
+    slug: "maths",
+    type: "Item",
+    rarity: "Common",
+    set: "1st Edition",
+    attack: 60,
+    defence: 55,
+    speed: 40,
+  },
+  {
+    name: "Rubber",
+    slug: "rubber",
+    type: "Item",
+    rarity: "Common",
+    set: "1st Edition",
+    attack: 20,
+    defence: 75,
+    speed: 40,
+  },
+  {
+    name: "Pen",
+    slug: "pen",
+    type: "Item",
+    rarity: "Common",
+    set: "1st Edition",
+    attack: 70,
+    defence: 50,
+    speed: 40,
+  },
+  {
+    name: "Pencil",
+    slug: "pencil",
+    type: "Item",
+    rarity: "Common",
+    set: "1st Edition",
+    attack: 70,
+    defence: 25,
+    speed: 60,
+  },
+  {
+    name: "School Lunches",
+    slug: "school-lunches",
+    type: "Item",
+    rarity: "Common",
+    set: "1st Edition",
+    attack: 75,
+    defence: 40,
+    speed: 20,
+  },
+  {
+    name: "Cricket Bat",
+    slug: "cricket-bat",
+    type: "Item",
+    rarity: "Common",
+    set: "1st Edition",
+    attack: 70,
+    defence: 50,
+    speed: 30,
+  },
+  {
+    name: "Cricket Bowl",
+    slug: "cricket-bowl",
+    type: "Spell",
+    rarity: null,
+    set: "1st Edition",
+    rulesText: "Draw a card.",
+  },
+  {
+    // Name preserved exactly as specified: "Old book".
+    name: "Old book",
+    slug: "old-book",
+    type: "Spell",
+    rarity: null,
+    set: "1st Edition",
+    rulesText: "Return a card from your discard pile to your hand.",
+  },
+  {
+    name: "Detention",
+    slug: "detention",
+    type: "Item",
+    rarity: null,
+    set: "1st Edition",
+    attack: 20,
+    defence: 40,
+    speed: 30,
+    rulesText: "Players can't draw cards.",
+  },
+  {
+    name: "Punch",
+    slug: "punch",
+    type: "Spell",
+    rarity: null,
+    set: "1st Edition",
+    rulesText: "Target Item gets -50 Defense until end of turn.",
+  },
+  {
+    name: "Running",
+    slug: "running",
+    type: "Item",
+    rarity: null,
+    set: "1st Edition",
+    attack: 20,
+    defence: 50,
+    speed: 80,
+    rulesText:
+      "When this enters, each player must put an Item that they control into their discard pile.",
+  },
+  {
+    // Physical card misprints stats as "10 attack 60 Defense 30 defense" —
+    // the final 30 is clearly meant to be Speed, stored as such per
+    // instruction.
+    name: "The Head of the School",
+    slug: "the-head-of-the-school",
+    type: "Item",
+    rarity: null,
+    set: "1st Edition",
+    attack: 10,
+    defence: 60,
+    speed: 30,
+    rulesText:
+      "When this enters, choose one:\n- Draw a card.\n- Target opponent discards a card.",
+  },
+  {
+    name: "IT Support",
+    slug: "it-support",
+    type: "Item",
+    rarity: null,
+    set: "1st Edition",
+    attack: 30,
+    defence: 50,
+    speed: 40,
+    rulesText: "When this enters the discard pile, draw a card.",
+  },
+  {
+    // The second ability is incomplete on the physical card — stored
+    // verbatim, missing effect not invented, per instruction.
+    name: "Star Drop",
+    slug: "star-drop",
+    type: "Commander",
+    rarity: null,
+    set: "1st Edition",
+    attack: 40,
+    defence: 60,
+    speed: 50,
+    rulesText:
+      "Discard a card: Draw a card. Activate this ability only twice each turn.\n\nWhenever you deal 10 damage to any target.",
   },
 ];
 
