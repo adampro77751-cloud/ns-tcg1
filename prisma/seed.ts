@@ -41,8 +41,28 @@ const sprites: SpriteSeed[] = [
   { name: "Air Sprite", slug: "air-sprite", rarity: "RARE" },
   { name: "Earth Sprite", slug: "earth-sprite", rarity: "RARE" },
   { name: "Ninja Sprite", slug: "ninja-sprite", rarity: "MYTHIC" },
-  { name: "Angel Sprite", slug: "angel-sprite", rarity: "MYTHIC" },
-  { name: "Devil Sprite", slug: "devil-sprite", rarity: "MYTHIC" },
+  {
+    name: "Angel Sprite",
+    slug: "angel-sprite",
+    rarity: "MYTHIC",
+    level1Ability: "Whenever you gain Health, gain an additional 10 Health.",
+    level2Ability: "Whenever you gain Health, gain an additional 20 Health.",
+    level3Ability: "The first time you gain Health each turn, draw a card.",
+    level4Ability: "Once per turn, prevent 30 damage dealt to you.",
+    level5Ability:
+      "The first time you would lose the game, set your Health to 100 instead.",
+  },
+  {
+    name: "Devil Sprite",
+    slug: "devil-sprite",
+    rarity: "MYTHIC",
+    level1Ability: "Your Items get +10 Attack.",
+    level2Ability: "Your Items get +20 Attack.",
+    level3Ability: "Once per turn, lose 20 Health to draw a card.",
+    level4Ability: "Once per turn, lose 30 Health to play an additional Item.",
+    level5Ability:
+      "The first time you lose Health each turn, your Items get +40 Attack this turn.",
+  },
   { name: "Cosmic Sprite", slug: "cosmic-sprite", rarity: "LEGENDARY" },
 ];
 
