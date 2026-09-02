@@ -198,6 +198,220 @@ const cards: CardSeed[] = [
     rulesText:
       "When this enters play, choose Spells or Items.\n\nIf Items is chosen, no more Items can be played for the rest of the game.\n\nIf Spells is chosen, no more Spells can be played for the rest of the game.",
   },
+  // Rarity for each of these reuses whatever this same card already had in
+  // the database (see the ~50 pre-existing Card rows) rather than the
+  // "UNSPECIFIED" given for most of them here. Only Chemistry Lesson and
+  // Blast From The Post are genuinely new cards with no prior rarity on
+  // record, so those stay "TBD".
+  {
+    // Existing DB name is "Sasuage Roll 3" — kept as-is rather than
+    // renamed to the "Sasuage Roll" given here, since it's unclear whether
+    // the "3" was dropped intentionally or is just shorthand.
+    name: "Sasuage Roll 3",
+    slug: "sasuage-roll-3",
+    type: "Item",
+    rarity: "Legendary",
+    set: "1st Edition",
+    attack: 95,
+    defence: 70,
+    speed: 80,
+    rulesText:
+      "When this enters, target opponent reveals their hand and you choose one card. Put it into play under your control.\n\n(You give this card back after the match)",
+  },
+  {
+    // Casing corrected to match the existing "IT Support" card's
+    // convention (was "It Room").
+    name: "IT Room",
+    slug: "it-room",
+    type: "Item",
+    rarity: "Legendary",
+    set: "1st Edition",
+    attack: 80,
+    defence: 70,
+    speed: 90,
+    rulesText:
+      "When this enters, put a card from your hand into play under your control, then draw a card.",
+  },
+  {
+    name: "Budge, Cathedral Cat",
+    slug: "budge",
+    type: "Commander",
+    rarity: "Legendary",
+    set: "1st Edition",
+    attack: 80,
+    defence: 60,
+    speed: 90,
+    rulesText:
+      "Whenever you play an Item, draw a card.\n\nWhenever you play a Spell, draw 2 cards.\n\nWhenever Budge attacks, search your library for a card, then put it into your hand unless you have 3 or more Spells in your discard pile. If you do, put that card into play instead.",
+  },
+  {
+    name: "Revision",
+    slug: "revision",
+    type: "Spell",
+    rarity: "Legendary",
+    set: "1st Edition",
+    rulesText: "You may play any number of Spells this turn.",
+  },
+  {
+    name: "Super Drop",
+    slug: "super-drop",
+    type: "Spell",
+    rarity: "Legendary",
+    set: "1st Edition",
+    rulesText: "You may play 3 additional Item cards or Spell cards this turn.",
+  },
+  {
+    name: "Cathedral Pergrines",
+    slug: "cathedral-pergrines",
+    type: "Commander",
+    rarity: "Legendary",
+    set: "1st Edition",
+    attack: 80,
+    defence: 80,
+    speed: 110,
+    rulesText:
+      "Dive Bomb — At the beginning of the attack step, you may discard a card. If you do, search your deck for any Item and put it onto the battlefield under your control.",
+  },
+  {
+    name: "The Final Bell",
+    slug: "the-final-bell",
+    type: "Spell",
+    rarity: "Legendary",
+    set: "1st Edition",
+    rulesText: "All Items you control become copies of target Item permanently.",
+  },
+  {
+    name: "Exam Marking",
+    slug: "exam-marking",
+    type: "Spell",
+    rarity: "Mythic",
+    set: "1st Edition",
+    rulesText: "Look at target opponent's hand. Choose 1 card. They discard that card.",
+  },
+  {
+    name: "Chemistry Lesson",
+    slug: "chemistry-lesson",
+    type: "Spell",
+    rarity: "TBD",
+    set: "1st Edition",
+    rulesText: "Return target Item card from your discard pile to play under your control.",
+  },
+  {
+    name: "Bio Worm",
+    slug: "bio-worm",
+    type: "Item",
+    rarity: "Epic",
+    set: "1st Edition",
+    attack: 70,
+    defence: 60,
+    speed: 60,
+    rulesText: "When Bio Worm attacks, target opponent discards a card.",
+  },
+  {
+    name: "Biologist",
+    slug: "biologist",
+    type: "Item",
+    rarity: "Epic",
+    set: "1st Edition",
+    attack: 60,
+    defence: 50,
+    speed: 70,
+    rulesText: "You may play 2 Items a turn.",
+  },
+  {
+    name: "Reflection",
+    slug: "reflection",
+    type: "Spell",
+    rarity: "Epic",
+    set: "1st Edition",
+    rulesText: "Put target Item into its owner's discard pile.",
+  },
+  {
+    name: "DNA",
+    slug: "dna",
+    type: "Item",
+    rarity: "Epic",
+    set: "1st Edition",
+    attack: 80,
+    defence: 50,
+    speed: 70,
+    rulesText: "Whenever an Item enters, deal 20 damage to any target and draw 1 card.",
+  },
+  {
+    name: "Time Bomb",
+    slug: "time-bomb",
+    type: "Item",
+    rarity: "Epic",
+    set: "1st Edition",
+    attack: 30,
+    defence: 50,
+    speed: 60,
+    rulesText:
+      "Whenever you cast a Spell, place a charge counter on this card.\n\nRemove 10 charge counters: Win the game.",
+  },
+  {
+    // Existing DB name is "Lunch Card" — treated as the same card as the
+    // "Lunch Cord" given here (assumed typo), name kept as-is.
+    name: "Lunch Card",
+    slug: "lunch-card",
+    type: "Item",
+    rarity: "Rare",
+    set: "1st Edition",
+    attack: 30,
+    defence: 40,
+    speed: 100,
+    rulesText: "If this card is discarded, return it to play under your control.",
+  },
+  {
+    name: "Phone",
+    slug: "phone",
+    type: "Item",
+    rarity: "Rare",
+    set: "1st Edition",
+    attack: 65,
+    defence: 75,
+    speed: 80,
+  },
+  {
+    name: "Table Tennis Table",
+    slug: "table-tennis-table",
+    type: "Item",
+    rarity: "Rare",
+    set: "1st Edition",
+    attack: 65,
+    defence: 75,
+    speed: 55,
+  },
+  {
+    name: "Cupcake",
+    slug: "cupcake",
+    type: "Item",
+    rarity: "Rare",
+    set: "1st Edition",
+    attack: 60,
+    defence: 50,
+    speed: 80,
+  },
+  {
+    name: "Cathedral",
+    slug: "cathedral",
+    type: "Item",
+    rarity: "Rare",
+    set: "1st Edition",
+    attack: 45,
+    defence: 80,
+    speed: 20,
+  },
+  {
+    // Kept literal as given — flagged separately as a possible typo for
+    // "Blast From The Past" rather than silently changed.
+    name: "Blast From The Post",
+    slug: "blast-from-the-post",
+    type: "Spell",
+    rarity: "TBD",
+    set: "1st Edition",
+    rulesText: "Return up to 2 target cards from your discard pile to your hand.",
+  },
 ];
 
 async function main() {
