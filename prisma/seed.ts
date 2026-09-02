@@ -96,7 +96,7 @@ const cards: CardSeed[] = [
     name: "End Of Year Test",
     slug: "end-of-year-test",
     type: "Item",
-    rarity: "TBD",
+    rarity: "Mythic",
     set: "1st Edition",
     attack: 85,
     defence: 75,
@@ -108,7 +108,7 @@ const cards: CardSeed[] = [
     name: "Parker",
     slug: "parker",
     type: "Spell",
-    rarity: "Legendary",
+    rarity: "Mythic",
     set: "1st Edition",
     rulesText: "Deal 100 damage to any target. Gain 100 health.",
   },
@@ -125,7 +125,7 @@ const cards: CardSeed[] = [
     name: "Seagrim",
     slug: "seagrim",
     type: "Spell",
-    rarity: "Epic",
+    rarity: "Mythic",
     set: "1st Edition",
     rulesText:
       "Draw 2 cards. Deal 100 damage to any target. Target opponent discards 2 cards.",
@@ -134,7 +134,7 @@ const cards: CardSeed[] = [
     name: "School",
     slug: "school",
     type: "Spell",
-    rarity: "Common",
+    rarity: "Mythic",
     set: "1st Edition",
     rulesText: "Search your deck for an Item card and put it under your control.",
   },
@@ -142,7 +142,7 @@ const cards: CardSeed[] = [
     name: "Valpy",
     slug: "valpy",
     type: "Spell",
-    rarity: "Rare",
+    rarity: "Mythic",
     set: "1st Edition",
     rulesText: "Draw 3 cards and put up to 2 of those cards into play.",
   },
@@ -150,7 +150,7 @@ const cards: CardSeed[] = [
     name: "Coke",
     slug: "coke",
     type: "Spell",
-    rarity: "Rare",
+    rarity: "Mythic",
     set: "1st Edition",
     rulesText:
       "Move target Spell or Item your opponent controls into their discard pile. You may play this Spell on your opponent's turn.",
@@ -159,7 +159,7 @@ const cards: CardSeed[] = [
     name: "Repton",
     slug: "repton",
     type: "Spell",
-    rarity: "Legendary",
+    rarity: "Mythic",
     set: "1st Edition",
     rulesText: "Gain control of target Item your opponent controls. Draw a card.",
   },
@@ -177,7 +177,7 @@ const cards: CardSeed[] = [
     name: "Brooke",
     slug: "brooke",
     type: "Spell",
-    rarity: "TBD",
+    rarity: "Mythic",
     set: "1st Edition",
     rulesText: "All Item cards get +100 Attack, +100 Speed and +100 Defense.",
   },
@@ -185,7 +185,7 @@ const cards: CardSeed[] = [
     name: "Pi",
     slug: "pi",
     type: "Spell",
-    rarity: "TBD",
+    rarity: "Mythic",
     set: "1st Edition",
     rulesText:
       "Return all Spell cards from your discard pile to your hand. You may play them this turn.",
@@ -194,7 +194,7 @@ const cards: CardSeed[] = [
     name: "The Curriculum",
     slug: "the-curriculum",
     type: "Champion",
-    rarity: "TBD",
+    rarity: "Mythic",
     set: "1st Edition",
     attack: 50,
     defence: 70,
@@ -205,8 +205,8 @@ const cards: CardSeed[] = [
   // Rarity for each of these reuses whatever this same card already had in
   // the database (see the ~50 pre-existing Card rows) rather than the
   // "UNSPECIFIED" given for most of them here. Only Chemistry Lesson and
-  // Blast From The Post are genuinely new cards with no prior rarity on
-  // record, so those stay "TBD".
+  // Blast From The Past are genuinely new cards with no prior rarity on
+  // record, so those stay "TBD" until confirmed.
   {
     // Existing DB name is "Sasuage Roll 3" — kept as-is rather than
     // renamed to the "Sasuage Roll" given here, since it's unclear whether
@@ -296,7 +296,7 @@ const cards: CardSeed[] = [
     name: "Chemistry Lesson",
     slug: "chemistry-lesson",
     type: "Spell",
-    rarity: "TBD",
+    rarity: "Epic",
     set: "1st Edition",
     rulesText: "Return target Item card from your discard pile to play under your control.",
   },
@@ -407,12 +407,12 @@ const cards: CardSeed[] = [
     speed: 20,
   },
   {
-    // Kept literal as given — flagged separately as a possible typo for
-    // "Blast From The Past" rather than silently changed.
-    name: "Blast From The Post",
-    slug: "blast-from-the-post",
+    // Confirmed as "Blast From The Past" — corrects the earlier
+    // "Blast From The Post" guess (flagged as a likely typo at the time).
+    name: "Blast From The Past",
+    slug: "blast-from-the-past",
     type: "Spell",
-    rarity: "TBD",
+    rarity: "Rare",
     set: "1st Edition",
     rulesText: "Return up to 2 target cards from your discard pile to your hand.",
   },
@@ -421,7 +421,7 @@ const cards: CardSeed[] = [
     name: "Mathomagics",
     slug: "mathomagics",
     type: "Spell",
-    rarity: "TBD",
+    rarity: "Rare",
     set: "1st Edition",
     rulesText: "Draw 3 cards.",
   },
@@ -450,7 +450,7 @@ const cards: CardSeed[] = [
     name: "School Bag",
     slug: "school-bag",
     type: "Spell",
-    rarity: "TBD",
+    rarity: "Rare",
     set: "1st Edition",
     rulesText: "Discard your hand, then draw 7 cards.",
   },
@@ -459,7 +459,7 @@ const cards: CardSeed[] = [
     name: "Radnor Springs",
     slug: "radnor-springs",
     type: "Item",
-    rarity: "TBD",
+    rarity: "Rare",
     set: "1st Edition",
     attack: 50,
     defence: 70,
@@ -735,20 +735,26 @@ async function main() {
     `Seeded ${sprites.length} Sprites (${editions.map((e) => e.name).join(", ")}).`,
   );
 
-  // "The Curriculum" previously existed under a misspelled slug
-  // ("the-curriculam") with only a name/rarity placeholder. Repoint that
-  // existing row at the correct slug first so the upsert below updates it
-  // in place (preserving its id and any references to it) instead of
-  // creating a second, duplicate "The Curriculum" row.
-  const misspelledCurriculum = await prisma.card.findUnique({
-    where: { slug: "the-curriculam" },
-    select: { id: true },
-  });
-  if (misspelledCurriculum) {
-    await prisma.card.update({
-      where: { id: misspelledCurriculum.id },
-      data: { slug: "the-curriculum" },
+  // Cards whose slug changed because the earlier name given for them
+  // turned out to be wrong (a typo or a guess later corrected). Repoint
+  // each old slug to its corrected one first so the upsert below updates
+  // that row in place (preserving its id and any references to it)
+  // instead of creating a second, duplicate row under the new slug.
+  const renamedCardSlugs: [oldSlug: string, newSlug: string][] = [
+    ["the-curriculam", "the-curriculum"], // typo: "Curriculam" -> "Curriculum"
+    ["blast-from-the-post", "blast-from-the-past"], // guessed "Post", confirmed "Past"
+  ];
+  for (const [oldSlug, newSlug] of renamedCardSlugs) {
+    const existing = await prisma.card.findUnique({
+      where: { slug: oldSlug },
+      select: { id: true },
     });
+    if (existing) {
+      await prisma.card.update({
+        where: { id: existing.id },
+        data: { slug: newSlug },
+      });
+    }
   }
 
   for (const card of cards) {
