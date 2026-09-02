@@ -31,7 +31,7 @@ export function EditProfileForm({
           type="text"
           value={username}
           disabled
-          className="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-500"
+          className="rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-slate-500"
         />
       </div>
       <div className="flex flex-col gap-1">
@@ -44,7 +44,7 @@ export function EditProfileForm({
           type="text"
           maxLength={40}
           defaultValue={displayName}
-          className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+          className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
         />
       </div>
       <div className="flex flex-col gap-1">
@@ -57,7 +57,7 @@ export function EditProfileForm({
           maxLength={280}
           rows={4}
           defaultValue={bio}
-          className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+          className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
         />
       </div>
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
@@ -74,7 +74,7 @@ export function EditProfileForm({
         </button>
         <Link
           href={`/player/${username}`}
-          className="text-sm text-zinc-600 hover:text-black"
+          className="text-sm text-slate-600 hover:text-black"
         >
           Cancel
         </Link>

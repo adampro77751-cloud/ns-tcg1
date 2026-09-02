@@ -38,7 +38,7 @@ export default async function AdminSpriteCodeBatchPage({
           <h1 className="text-2xl font-bold tracking-tight">
             {batch.sprite.name} — {batch.edition.name}
           </h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-slate-500">
             {batch.quantity} codes · created{" "}
             {batch.createdAt.toLocaleDateString()} by{" "}
             {batch.createdBy.username} · {redeemedCount} redeemed
@@ -46,16 +46,16 @@ export default async function AdminSpriteCodeBatchPage({
         </div>
         <a
           href={`/admin/sprite-codes/${batch.id}/csv`}
-          className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50"
+          className="rounded border border-sky-300 px-3 py-1.5 text-sm hover:bg-sky-50"
         >
           Download CSV
         </a>
       </div>
 
-      <div className="mt-6 overflow-x-auto rounded border border-zinc-200">
+      <div className="mt-6 overflow-x-auto rounded border border-sky-200 bg-white">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-200 bg-zinc-50 text-left text-xs uppercase text-zinc-500">
+            <tr className="border-b border-sky-200 bg-sky-50 text-left text-xs uppercase text-slate-500">
               <th className="px-4 py-2">Code</th>
               <th className="px-4 py-2">Sprite</th>
               <th className="px-4 py-2">Edition</th>
@@ -64,7 +64,7 @@ export default async function AdminSpriteCodeBatchPage({
           </thead>
           <tbody>
             {batch.codes.map((code) => (
-              <tr key={code.code} className="border-b border-zinc-100 last:border-0">
+              <tr key={code.code} className="border-b border-sky-100 last:border-0">
                 <td className="px-4 py-2 font-mono">{code.code}</td>
                 <td className="px-4 py-2">{batch.sprite.name}</td>
                 <td className="px-4 py-2">{batch.edition.name}</td>
@@ -74,7 +74,7 @@ export default async function AdminSpriteCodeBatchPage({
                       "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase " +
                       (code.redeemed
                         ? "bg-green-100 text-green-800"
-                        : "bg-zinc-100 text-zinc-500")
+                        : "bg-sky-100 text-slate-500")
                     }
                   >
                     {code.redeemed ? "Redeemed" : "Unused"}

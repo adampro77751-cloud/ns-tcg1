@@ -35,14 +35,14 @@ export default async function MySpritesPage() {
         <h1 className="text-2xl font-bold tracking-tight">My Sprites</h1>
         <Link
           href="/redeem"
-          className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50"
+          className="rounded border border-sky-300 px-3 py-1.5 text-sm hover:bg-sky-50"
         >
           Redeem a code
         </Link>
       </div>
 
       {instances.length === 0 ? (
-        <p className="mt-6 text-sm text-zinc-500">
+        <p className="mt-6 text-sm text-slate-500">
           You don&apos;t own any Sprites yet.
         </p>
       ) : (
@@ -51,10 +51,10 @@ export default async function MySpritesPage() {
             <li key={instance.id}>
               <Link
                 href={`/sprites/mine/${instance.id}`}
-                className="flex flex-col gap-1 rounded border border-zinc-200 p-3 hover:border-zinc-400"
+                className="flex flex-col gap-1 rounded border border-sky-200 bg-white p-3 hover:border-slate-400"
               >
                 <span className="font-medium">{instance.name}</span>
-                <span className="text-xs text-zinc-500">
+                <span className="text-xs text-slate-500">
                   {instance.sprite.name}
                 </span>
                 <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -63,17 +63,17 @@ export default async function MySpritesPage() {
                       className={
                         "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase " +
                         (RARITY_STYLES[instance.sprite.rarity] ??
-                          "bg-zinc-100 text-zinc-600")
+                          "bg-sky-100 text-slate-600")
                       }
                     >
                       {instance.sprite.rarity}
                     </span>
                   )}
-                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600">
+                  <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
                     {instance.edition.name}
                   </span>
                 </div>
-                <div className="mt-1 flex items-center justify-between text-xs text-zinc-500">
+                <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
                   <span>
                     Level {instance.level}
                     {instance.level >= MAX_SPRITE_LEVEL ? " — MAX LEVEL" : ""}

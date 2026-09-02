@@ -31,14 +31,14 @@ export default async function SpritesPage() {
           {session?.user && (
             <Link
               href="/sprites/mine"
-              className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50"
+              className="rounded border border-sky-300 px-3 py-1.5 text-sm hover:bg-sky-50"
             >
               My Sprites
             </Link>
           )}
           <Link
             href="/redeem"
-            className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50"
+            className="rounded border border-sky-300 px-3 py-1.5 text-sm hover:bg-sky-50"
           >
             Redeem a code
           </Link>
@@ -46,7 +46,7 @@ export default async function SpritesPage() {
       </div>
 
       {sprites.length === 0 ? (
-        <p className="mt-6 text-sm text-zinc-500">No Sprites yet.</p>
+        <p className="mt-6 text-sm text-slate-500">No Sprites yet.</p>
       ) : (
         <ul className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {sprites.map((sprite) => {
@@ -55,7 +55,7 @@ export default async function SpritesPage() {
               <li key={sprite.id}>
                 <Link
                   href={`/sprites/${sprite.slug}`}
-                  className="flex flex-col gap-2 rounded border border-zinc-200 p-3 hover:border-zinc-400"
+                  className="flex flex-col gap-2 rounded border border-sky-200 bg-white p-3 hover:border-slate-400"
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{sprite.name}</span>
@@ -65,14 +65,14 @@ export default async function SpritesPage() {
                           "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase " +
                           (count > 0
                             ? "bg-green-100 text-green-800"
-                            : "bg-zinc-100 text-zinc-500")
+                            : "bg-sky-100 text-slate-500")
                         }
                       >
                         {count > 0 ? `Owned ×${count}` : "Not owned"}
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-zinc-500">
+                  <div className="text-xs text-slate-500">
                     {[sprite.rarity, sprite.set].filter(Boolean).join(" · ") ||
                       " "}
                   </div>

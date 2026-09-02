@@ -28,12 +28,12 @@ export function RenameSpriteForm({
         type="text"
         defaultValue={initialName}
         maxLength={30}
-        className="rounded border border-zinc-300 px-2 py-1 text-sm outline-none focus:border-blue-600"
+        className="rounded border border-sky-300 px-2 py-1 text-sm outline-none focus:border-blue-600"
       />
       <button
         type="submit"
         disabled={pending}
-        className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50 disabled:opacity-60"
+        className="rounded border border-sky-300 px-2 py-1 text-xs text-slate-600 hover:bg-sky-50 disabled:opacity-60"
       >
         {pending ? "Saving..." : "Rename"}
       </button>

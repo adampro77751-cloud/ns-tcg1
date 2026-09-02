@@ -27,7 +27,7 @@ export default async function SpriteDetailPage({
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{sprite.name}</h1>
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-slate-500">
             {[sprite.rarity, sprite.set].filter(Boolean).join(" · ")}
           </p>
         </div>
@@ -37,7 +37,7 @@ export default async function SpriteDetailPage({
               "shrink-0 rounded px-2 py-1 text-xs font-semibold uppercase " +
               (owned
                 ? "bg-green-100 text-green-800"
-                : "bg-zinc-100 text-zinc-500")
+                : "bg-sky-100 text-slate-500")
             }
           >
             {owned ? `Owned ×${ownedInstances.length}` : "Not owned"}
@@ -61,15 +61,15 @@ export default async function SpriteDetailPage({
       )}
 
       {sprite.description && (
-        <p className="mt-6 text-sm text-zinc-700">{sprite.description}</p>
+        <p className="mt-6 text-sm text-slate-700">{sprite.description}</p>
       )}
 
       {sprite.rulesText && (
-        <div className="mt-6 rounded border border-zinc-200 bg-zinc-50 px-4 py-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        <div className="mt-6 rounded border border-sky-200 bg-sky-50 px-4 py-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Rules text
           </h2>
-          <p className="mt-1 whitespace-pre-line text-sm text-zinc-800">
+          <p className="mt-1 whitespace-pre-line text-sm text-slate-800">
             {sprite.rulesText}
           </p>
         </div>
@@ -80,13 +80,13 @@ export default async function SpriteDetailPage({
       <dl className="mt-6 grid grid-cols-2 gap-3 text-sm">
         {sprite.set && (
           <div>
-            <dt className="text-zinc-500">Set</dt>
+            <dt className="text-slate-500">Set</dt>
             <dd>{sprite.set}</dd>
           </div>
         )}
         {sprite.releaseDate && (
           <div>
-            <dt className="text-zinc-500">Release date</dt>
+            <dt className="text-slate-500">Release date</dt>
             <dd>{sprite.releaseDate.toLocaleDateString()}</dd>
           </div>
         )}

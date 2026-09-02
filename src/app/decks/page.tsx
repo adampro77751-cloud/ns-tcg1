@@ -37,7 +37,7 @@ export default async function DecksPage() {
       </div>
 
       {decks.length === 0 ? (
-        <p className="mt-6 text-sm text-zinc-500">
+        <p className="mt-6 text-sm text-slate-500">
           You haven&apos;t created any decks yet.
         </p>
       ) : (
@@ -49,11 +49,11 @@ export default async function DecksPage() {
               <li key={deck.id}>
                 <Link
                   href={`/decks/${deck.id}`}
-                  className="flex items-center justify-between rounded border border-zinc-200 px-4 py-3 hover:border-zinc-400"
+                  className="flex items-center justify-between rounded border border-sky-200 bg-white px-4 py-3 hover:border-slate-400"
                 >
                   <div>
                     <div className="font-medium">{deck.name}</div>
-                    <div className="text-xs text-zinc-500">
+                    <div className="text-xs text-slate-500">
                       {deck.format.name} · {totalCards} cards
                     </div>
                   </div>

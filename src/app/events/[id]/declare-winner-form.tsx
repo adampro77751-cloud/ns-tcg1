@@ -16,7 +16,7 @@ export function DeclareWinnerForm({
         name="winnerId"
         required
         defaultValue=""
-        className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+        className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
       >
         <option value="" disabled>
           Choose the winner

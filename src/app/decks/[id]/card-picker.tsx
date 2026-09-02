@@ -62,13 +62,13 @@ export function CardPicker({
           placeholder="Search cards by name..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="min-w-0 flex-1 rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+          className="min-w-0 flex-1 rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
         />
         {types.length > 0 && (
           <select
             value={type}
             onChange={(e) => setType(e.target.value)}
-            className="rounded border border-zinc-300 px-2 py-2 text-sm outline-none focus:border-blue-600"
+            className="rounded border border-sky-300 px-2 py-2 text-sm outline-none focus:border-blue-600"
           >
             <option value="all">All types</option>
             {types.map((t) => (
@@ -82,7 +82,7 @@ export function CardPicker({
           <select
             value={rarity}
             onChange={(e) => setRarity(e.target.value)}
-            className="rounded border border-zinc-300 px-2 py-2 text-sm outline-none focus:border-blue-600"
+            className="rounded border border-sky-300 px-2 py-2 text-sm outline-none focus:border-blue-600"
           >
             <option value="all">All rarities</option>
             {rarities.map((r) => (
@@ -96,7 +96,7 @@ export function CardPicker({
           <select
             value={set}
             onChange={(e) => setSet(e.target.value)}
-            className="rounded border border-zinc-300 px-2 py-2 text-sm outline-none focus:border-blue-600"
+            className="rounded border border-sky-300 px-2 py-2 text-sm outline-none focus:border-blue-600"
           >
             <option value="all">All sets</option>
             {sets.map((s) => (
@@ -109,7 +109,7 @@ export function CardPicker({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">No cards match.</p>
+        <p className="mt-3 text-sm text-slate-500">No cards match.</p>
       ) : (
         <ul className="mt-3 flex flex-col gap-1.5">
           {filtered.map((card) => {
@@ -118,31 +118,31 @@ export function CardPicker({
             return (
               <li
                 key={card.id}
-                className="flex items-start justify-between gap-3 rounded border border-zinc-200 px-3 py-2"
+                className="flex items-start justify-between gap-3 rounded border border-sky-200 bg-white px-3 py-2"
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="font-medium">{card.name}</span>
-                    <span className="text-xs text-zinc-500">
+                    <span className="text-xs text-slate-500">
                       {[card.type, card.rarity, card.set].filter(Boolean).join(" · ")}
                     </span>
                   </div>
                   {hasStats && (
-                    <div className="mt-1 text-xs text-zinc-500">
+                    <div className="mt-1 text-xs text-slate-500">
                       {card.attack !== null && <>ATK {card.attack} </>}
                       {card.defence !== null && <>· DEF {card.defence} </>}
                       {card.speed !== null && <>· SPD {card.speed}</>}
                     </div>
                   )}
                   {card.rulesText && (
-                    <p className="mt-1 max-w-md whitespace-pre-line text-xs text-zinc-600">
+                    <p className="mt-1 max-w-md whitespace-pre-line text-xs text-slate-600">
                       {card.rulesText}
                     </p>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {deckCardQuantities[card.id] > 0 && (
-                    <span className="text-xs text-zinc-500">
+                    <span className="text-xs text-slate-500">
                       In deck ×{deckCardQuantities[card.id]}
                     </span>
                   )}
@@ -151,7 +151,7 @@ export function CardPicker({
                     <input type="hidden" name="cardId" value={card.id} />
                     <button
                       type="submit"
-                      className="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50"
+                      className="rounded border border-sky-300 px-2 py-1 text-xs hover:bg-sky-50"
                     >
                       Add
                     </button>

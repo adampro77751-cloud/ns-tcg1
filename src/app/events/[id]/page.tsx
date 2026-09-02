@@ -104,7 +104,7 @@ export default async function EventDetailPage({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{event.name}</h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-slate-500">
             {event.format.name} · organised by{" "}
             <Link href={`/player/${event.organizer.username}`} className="hover:underline">
               {event.organizer.username}
@@ -112,13 +112,13 @@ export default async function EventDetailPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-semibold uppercase text-zinc-600">
+          <span className="rounded bg-sky-100 px-2 py-1 text-xs font-semibold uppercase text-slate-600">
             {event.status.replace("_", " ")}
           </span>
           {isLive && <RefreshButton />}
         </div>
       </div>
-      <p className="mt-1 font-mono text-sm text-zinc-500">
+      <p className="mt-1 font-mono text-sm text-slate-500">
         Join code: {event.joinCode}
       </p>
 
@@ -128,20 +128,20 @@ export default async function EventDetailPage({
         </p>
       )}
 
-      <h2 className="mt-6 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+      <h2 className="mt-6 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Players ({event.players.length} / {event.maxPlayers})
       </h2>
       <ul className="mt-3 flex flex-col gap-1.5">
         {event.players.map((p) => (
           <li
             key={p.userId}
-            className="flex items-center justify-between rounded border border-zinc-200 px-3 py-2"
+            className="flex items-center justify-between rounded border border-sky-200 bg-white px-3 py-2"
           >
             <div>
               <Link href={`/player/${p.user.username}`} className="hover:underline">
                 {p.user.username}
               </Link>
-              <div className="text-xs text-zinc-500">
+              <div className="text-xs text-slate-500">
                 {p.spriteInstance ? (
                   <>
                     {p.spriteInstance.name} · {p.spriteInstance.sprite.name} ·
@@ -155,7 +155,7 @@ export default async function EventDetailPage({
             </div>
             <div className="flex items-center gap-2">
               {p.userId === event.organizerId && (
-                <span className="text-xs text-zinc-400">Organiser</span>
+                <span className="text-xs text-slate-400">Organiser</span>
               )}
               {event.winnerId === p.userId && (
                 <span className="text-xs font-semibold text-green-700">Winner</span>
@@ -173,7 +173,7 @@ export default async function EventDetailPage({
               <select
                 name="spriteInstanceId"
                 defaultValue=""
-                className="rounded border border-zinc-300 px-3 py-1.5 text-sm outline-none focus:border-blue-600"
+                className="rounded border border-sky-300 px-3 py-1.5 text-sm outline-none focus:border-blue-600"
               >
                 <option value="">No Sprite</option>
                 {joinSprites.map((sprite) => (
@@ -191,7 +191,7 @@ export default async function EventDetailPage({
             </form>
           )}
           {!session?.user && (
-            <p className="text-sm text-zinc-600">
+            <p className="text-sm text-slate-600">
               <Link href="/login" className="text-blue-600">
                 Log in
               </Link>{" "}
@@ -199,7 +199,7 @@ export default async function EventDetailPage({
             </p>
           )}
           {isFull && !isPlayer && (
-            <p className="text-sm text-zinc-500">This event is full.</p>
+            <p className="text-sm text-slate-500">This event is full.</p>
           )}
           {isOrganizer && (
             <>
@@ -208,7 +208,7 @@ export default async function EventDetailPage({
                 <button
                   type="submit"
                   disabled={event.players.length < MIN_EVENT_PLAYERS}
-                  className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50 disabled:opacity-50"
+                  className="rounded border border-sky-300 px-3 py-1.5 text-sm hover:bg-sky-50 disabled:opacity-50"
                 >
                   Start event
                 </button>
@@ -217,7 +217,7 @@ export default async function EventDetailPage({
                 <input type="hidden" name="eventId" value={event.id} />
                 <button
                   type="submit"
-                  className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50"
+                  className="rounded border border-sky-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-sky-50"
                 >
                   Cancel event
                 </button>
@@ -229,14 +229,14 @@ export default async function EventDetailPage({
 
       {event.status === "IN_PROGRESS" && isSeries && (
         <div className="mt-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Best of {event.bestOf} — first to {roundTarget}
           </h2>
           <ul className="mt-3 flex flex-col gap-1.5">
             {event.players.map((p) => (
               <li
                 key={p.userId}
-                className="flex items-center justify-between rounded border border-zinc-200 px-3 py-2 text-sm"
+                className="flex items-center justify-between rounded border border-sky-200 bg-white px-3 py-2 text-sm"
               >
                 <span>{p.user.username}</span>
                 <span className="font-semibold">
@@ -266,7 +266,7 @@ export default async function EventDetailPage({
 
       {event.status === "IN_PROGRESS" && isOrganizer && !isSeries && (
         <div className="mt-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Declare winner
           </h2>
           <DeclareWinnerForm
@@ -320,7 +320,7 @@ export default async function EventDetailPage({
                         className="flex items-center justify-between rounded border border-green-100 bg-white px-3 py-2 text-sm hover:border-green-300"
                       >
                         <span>Round {i + 1}</span>
-                        <span className="text-zinc-600">
+                        <span className="text-slate-600">
                           {winnerUsername
                             ? `${winnerUsername} won`
                             : m.status.replace("_", " ")}
@@ -336,7 +336,7 @@ export default async function EventDetailPage({
       )}
 
       {event.status === "CANCELLED" && (
-        <p className="mt-6 text-sm text-zinc-500">This event was cancelled.</p>
+        <p className="mt-6 text-sm text-slate-500">This event was cancelled.</p>
       )}
     </div>
   );

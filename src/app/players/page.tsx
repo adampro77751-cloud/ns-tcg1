@@ -30,7 +30,7 @@ export default async function PlayersPage({
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
       <h1 className="text-2xl font-bold tracking-tight">Find players</h1>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p className="mt-1 text-sm text-slate-500">
         Browse or search for another NS TCG account by username.
       </p>
 
@@ -41,7 +41,7 @@ export default async function PlayersPage({
           defaultValue={q}
           placeholder="Search by username..."
           autoFocus
-          className="min-w-0 flex-1 rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+          className="min-w-0 flex-1 rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
         />
         <button
           type="submit"
@@ -52,7 +52,7 @@ export default async function PlayersPage({
       </form>
 
       {users.length === 0 ? (
-        <p className="mt-6 text-sm text-zinc-500">
+        <p className="mt-6 text-sm text-slate-500">
           {q.length > 0
             ? `No players found matching "${q}".`
             : "No players yet."}
@@ -65,7 +65,7 @@ export default async function PlayersPage({
               <li key={user.username}>
                 <Link
                   href={`/player/${user.username}`}
-                  className="flex items-center justify-between rounded border border-zinc-200 px-4 py-3 hover:border-zinc-400"
+                  className="flex items-center justify-between rounded border border-sky-200 bg-white px-4 py-3 hover:border-slate-400"
                 >
                   <span className="flex items-center gap-2 font-medium">
                     {user.username}
@@ -75,7 +75,7 @@ export default async function PlayersPage({
                       </span>
                     )}
                   </span>
-                  <span className="text-xs text-zinc-500">
+                  <span className="text-xs text-slate-500">
                     {s.matchesPlayed} played · {s.wins}W-{s.losses}L ·{" "}
                     {s.winPercentage.toFixed(1)}% win rate
                   </span>
@@ -86,7 +86,7 @@ export default async function PlayersPage({
         </ul>
       )}
       {users.length === RESULT_LIMIT && (
-        <p className="mt-3 text-xs text-zinc-500">
+        <p className="mt-3 text-xs text-slate-500">
           Showing the first {RESULT_LIMIT} accounts — search to narrow this
           down further.
         </p>

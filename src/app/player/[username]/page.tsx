@@ -14,9 +14,9 @@ const RARITY_STYLES: Record<string, string> = {
 
 function StatTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-zinc-200 px-4 py-3">
+    <div className="rounded border border-sky-200 bg-white px-4 py-3">
       <div className="text-2xl font-semibold">{value}</div>
-      <div className="text-xs text-zinc-500">{label}</div>
+      <div className="text-xs text-slate-500">{label}</div>
     </div>
   );
 }
@@ -88,16 +88,16 @@ export default async function PlayerProfilePage({
             )}
           </h1>
           {user.profile?.displayName && (
-            <p className="text-zinc-600">{user.profile.displayName}</p>
+            <p className="text-slate-600">{user.profile.displayName}</p>
           )}
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-slate-500">
             Joined {user.createdAt.toLocaleDateString()}
           </p>
         </div>
         {isOwnProfile && (
           <a
             href="/profile/edit"
-            className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50"
+            className="rounded border border-sky-300 px-3 py-1.5 text-sm hover:bg-sky-50"
           >
             Edit profile
           </a>
@@ -105,12 +105,12 @@ export default async function PlayerProfilePage({
       </div>
 
       {user.profile?.bio && (
-        <p className="mt-4 max-w-xl text-sm text-zinc-700">
+        <p className="mt-4 max-w-xl text-sm text-slate-700">
           {user.profile.bio}
         </p>
       )}
 
-      <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+      <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Match record
       </h2>
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -125,7 +125,7 @@ export default async function PlayerProfilePage({
 
       {stats.formatRecords.length > 0 && (
         <>
-          <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">
             Record by format
           </h2>
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -140,7 +140,7 @@ export default async function PlayerProfilePage({
         </>
       )}
 
-      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Event record
       </h2>
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -148,7 +148,7 @@ export default async function PlayerProfilePage({
         <StatTile label="Events won" value={String(stats.eventsWon)} />
       </div>
 
-      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Sprites
       </h2>
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -167,10 +167,10 @@ export default async function PlayerProfilePage({
           {spriteInstances.map((instance) => (
             <li
               key={instance.id}
-              className="flex flex-col gap-1 rounded border border-zinc-200 p-3"
+              className="flex flex-col gap-1 rounded border border-sky-200 bg-white p-3"
             >
               <span className="font-medium">{instance.name}</span>
-              <span className="text-xs text-zinc-500">
+              <span className="text-xs text-slate-500">
                 {instance.sprite.name}
               </span>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -179,17 +179,17 @@ export default async function PlayerProfilePage({
                     className={
                       "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase " +
                       (RARITY_STYLES[instance.sprite.rarity] ??
-                        "bg-zinc-100 text-zinc-600")
+                        "bg-sky-100 text-slate-600")
                     }
                   >
                     {instance.sprite.rarity}
                   </span>
                 )}
-                <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600">
+                <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
                   {instance.edition.name}
                 </span>
               </div>
-              <span className="mt-1 text-xs text-zinc-500">
+              <span className="mt-1 text-xs text-slate-500">
                 Level {instance.level}
                 {instance.level >= MAX_SPRITE_LEVEL ? " — MAX LEVEL" : ""}
               </span>
@@ -197,21 +197,21 @@ export default async function PlayerProfilePage({
           ))}
         </ul>
       ) : (
-        <p className="mt-3 text-sm text-zinc-500">No Sprites owned yet.</p>
+        <p className="mt-3 text-sm text-slate-500">No Sprites owned yet.</p>
       )}
 
-      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Recent matches
       </h2>
       {recentMatches.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">No completed matches yet.</p>
+        <p className="mt-3 text-sm text-slate-500">No completed matches yet.</p>
       ) : (
         <ul className="mt-3 flex flex-col gap-2">
           {recentMatches.map((match) => (
             <li key={match.matchId}>
               <Link
                 href={`/play/${match.matchId}`}
-                className="flex items-center justify-between rounded border border-zinc-200 px-4 py-3 hover:border-zinc-400"
+                className="flex items-center justify-between rounded border border-sky-200 bg-white px-4 py-3 hover:border-slate-400"
               >
                 <div>
                   <span
@@ -225,15 +225,15 @@ export default async function PlayerProfilePage({
                   <span className="text-sm">
                     vs{" "}
                     {match.opponentUsername ?? (
-                      <span className="text-zinc-400">Unknown</span>
+                      <span className="text-slate-400">Unknown</span>
                     )}
                   </span>
-                  <div className="text-xs text-zinc-500">
+                  <div className="text-xs text-slate-500">
                     {match.formatName}
                     {match.spriteLabel ? ` · ${match.spriteLabel}` : ""}
                   </div>
                 </div>
-                <span className="text-xs text-zinc-500">
+                <span className="text-xs text-slate-500">
                   {match.date?.toLocaleDateString() ?? ""}
                 </span>
               </Link>
@@ -242,21 +242,21 @@ export default async function PlayerProfilePage({
         </ul>
       )}
 
-      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Decks
       </h2>
       {user.decks.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">No saved decks yet.</p>
+        <p className="mt-3 text-sm text-slate-500">No saved decks yet.</p>
       ) : (
         <ul className="mt-3 flex flex-col gap-2">
           {user.decks.map((deck) => (
             <li key={deck.id}>
               <Link
                 href={`/decks/${deck.id}`}
-                className="flex items-center justify-between rounded border border-zinc-200 px-4 py-3 hover:border-zinc-400"
+                className="flex items-center justify-between rounded border border-sky-200 bg-white px-4 py-3 hover:border-slate-400"
               >
                 <span className="font-medium">{deck.name}</span>
-                <span className="text-sm text-zinc-500">
+                <span className="text-sm text-slate-500">
                   {deck.format.name}
                 </span>
               </Link>

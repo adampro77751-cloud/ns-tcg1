@@ -30,7 +30,7 @@ export function LevelAbilities({
 
   return (
     <div className="mt-6">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
         Level abilities
       </h2>
       <ul className="mt-2 flex flex-col gap-1.5">
@@ -48,8 +48,8 @@ export function LevelAbilities({
                 (isCurrent
                   ? "border-amber-300 bg-amber-50"
                   : isUnlocked
-                    ? "border-zinc-200 bg-white"
-                    : "border-zinc-200 bg-zinc-50 text-zinc-400")
+                    ? "border-sky-200 bg-white"
+                    : "border-sky-200 bg-sky-50 text-slate-400")
               }
             >
               <span className="mr-2 font-semibold">

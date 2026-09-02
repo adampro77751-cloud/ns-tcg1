@@ -26,7 +26,7 @@ export function RedeemForm({ initialCode }: { initialCode: string }) {
           placeholder="NS-7K4P-X9QM"
           defaultValue={initialCode}
           autoComplete="off"
-          className="rounded border border-zinc-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-blue-600"
+          className="rounded border border-sky-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-blue-600"
         />
       </div>
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}

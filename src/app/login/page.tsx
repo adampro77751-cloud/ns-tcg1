@@ -27,7 +27,7 @@ export default function LoginPage() {
               type="text"
               required
               autoComplete="username"
-              className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+              className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
             />
           </div>
           <div className="flex flex-col gap-1">
@@ -40,7 +40,7 @@ export default function LoginPage() {
               type="password"
               required
               autoComplete="current-password"
-              className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+              className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
             />
           </div>
           {state.error && (
@@ -54,7 +54,7 @@ export default function LoginPage() {
             {pending ? "Logging in..." : "Log in"}
           </button>
         </form>
-        <p className="mt-4 text-sm text-zinc-600">
+        <p className="mt-4 text-sm text-slate-600">
           Don&apos;t have an account?{" "}
           <Link href="/signup" className="font-medium text-blue-600">
             Sign up

@@ -117,9 +117,9 @@ export default async function RulesPage() {
       <Section title="Formats">
         <div className="flex flex-col gap-3">
           {formats.map((format) => (
-            <div key={format.id} className="rounded border border-zinc-200 p-4">
+            <div key={format.id} className="rounded border border-sky-200 bg-white p-4">
               <h3 className="font-semibold">{format.name}</h3>
-              <p className="mt-1 text-sm text-zinc-600">
+              <p className="mt-1 text-sm text-slate-600">
                 Deck size:{" "}
                 {format.maxDeckSize && format.maxDeckSize === format.minDeckSize
                   ? format.minDeckSize
@@ -154,10 +154,10 @@ function Section({
 }) {
   return (
     <section className="mt-8">
-      <h2 className="text-lg font-semibold border-b border-zinc-200 pb-1">
+      <h2 className="text-lg font-semibold border-b border-sky-200 pb-1">
         {title}
       </h2>
-      <div className="mt-3 text-sm text-zinc-700 flex flex-col gap-2">
+      <div className="mt-3 text-sm text-slate-700 flex flex-col gap-2">
         {children}
       </div>
     </section>

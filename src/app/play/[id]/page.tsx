@@ -94,21 +94,21 @@ export default async function MatchDetailPage({
           {match.format.name} match
         </h1>
         <div className="flex items-center gap-2">
-          <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-semibold uppercase text-zinc-600">
+          <span className="rounded bg-sky-100 px-2 py-1 text-xs font-semibold uppercase text-slate-600">
             {match.status.replace("_", " ")}
           </span>
           {isLive && <RefreshButton />}
         </div>
       </div>
-      <p className="mt-1 font-mono text-sm text-zinc-500">
+      <p className="mt-1 font-mono text-sm text-slate-500">
         Join code: {match.joinCode}
       </p>
-      <p className="mt-1 text-xs text-zinc-500">
+      <p className="mt-1 text-xs text-slate-500">
         Starting hand: {match.format.startingHand} · Starting health:{" "}
         {match.format.startingHealth}
       </p>
       {match.event && (
-        <p className="mt-1 text-xs text-zinc-500">
+        <p className="mt-1 text-xs text-slate-500">
           Round of{" "}
           <Link href={`/events/${match.event.id}`} className="text-blue-600">
             {match.event.name}
@@ -123,26 +123,26 @@ export default async function MatchDetailPage({
         </p>
       )}
 
-      <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-4 rounded border border-zinc-200 p-6 text-center">
+      <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-4 rounded border border-sky-200 bg-white p-6 text-center">
         <PlayerBlock label="Player 1" player={creator} />
-        <span className="text-sm font-semibold text-zinc-400">VS</span>
+        <span className="text-sm font-semibold text-slate-400">VS</span>
         {opponent ? (
           <PlayerBlock label="Player 2" player={opponent} />
         ) : (
-          <div className="text-sm text-zinc-400">Waiting for opponent...</div>
+          <div className="text-sm text-slate-400">Waiting for opponent...</div>
         )}
       </div>
 
       {match.status === "WAITING" && isParticipant && (
         <div className="mt-6 flex flex-col items-start gap-3">
-          <p className="text-sm text-zinc-600">
+          <p className="text-sm text-slate-600">
             Share the join code above with your opponent.
           </p>
           <form action={cancelMatchAction}>
             <input type="hidden" name="matchId" value={match.id} />
             <button
               type="submit"
-              className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50"
+              className="rounded border border-sky-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-sky-50"
             >
               Cancel match
             </button>
@@ -151,7 +151,7 @@ export default async function MatchDetailPage({
       )}
 
       {isEventRoundForOther && (
-        <p className="mt-6 text-sm text-zinc-500">
+        <p className="mt-6 text-sm text-slate-500">
           This is a round of a private event series — only the other player
           in that event can join it.
         </p>
@@ -160,7 +160,7 @@ export default async function MatchDetailPage({
       {canJoin && (
         <div className="mt-6">
           {joinDecks.length === 0 ? (
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-slate-500">
               You need a legal deck for {match.format.name} to join. Build
               one in{" "}
               <Link href="/decks/new" className="text-blue-600">
@@ -179,7 +179,7 @@ export default async function MatchDetailPage({
       )}
 
       {match.status === "WAITING" && !session?.user && (
-        <p className="mt-6 text-sm text-zinc-600">
+        <p className="mt-6 text-sm text-slate-600">
           <Link href="/login" className="text-blue-600">
             Log in
           </Link>{" "}
@@ -189,10 +189,10 @@ export default async function MatchDetailPage({
 
       {match.status === "IN_PROGRESS" && isParticipant && opponent && (
         <div className="mt-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Report result
           </h2>
-          <p className="mt-1 text-sm text-zinc-600">
+          <p className="mt-1 text-sm text-slate-600">
             Either player can submit the result. Your opponent will need to
             confirm it before it&apos;s final.
           </p>
@@ -203,7 +203,7 @@ export default async function MatchDetailPage({
                 <input type="hidden" name="winnerId" value={p.userId} />
                 <button
                   type="submit"
-                  className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50"
+                  className="rounded border border-sky-300 px-3 py-1.5 text-sm hover:bg-sky-50"
                 >
                   {p.user.username} won
                 </button>
@@ -235,7 +235,7 @@ export default async function MatchDetailPage({
                   <input type="hidden" name="matchId" value={match.id} />
                   <button
                     type="submit"
-                    className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50"
+                    className="rounded border border-sky-300 px-3 py-1.5 text-sm hover:bg-sky-50"
                   >
                     Dispute
                   </button>
@@ -260,7 +260,7 @@ export default async function MatchDetailPage({
       )}
 
       {match.status === "CANCELLED" && (
-        <p className="mt-6 text-sm text-zinc-500">This match was cancelled.</p>
+        <p className="mt-6 text-sm text-slate-500">This match was cancelled.</p>
       )}
     </div>
   );
@@ -284,14 +284,14 @@ function PlayerBlock({
 }) {
   return (
     <div>
-      <div className="text-xs text-zinc-400">{label}</div>
+      <div className="text-xs text-slate-400">{label}</div>
       <div className="font-semibold">
         <Link href={`/player/${player.user.username}`} className="hover:underline">
           {player.user.username}
         </Link>
       </div>
-      <div className="text-xs text-zinc-500">{player.deck.name}</div>
-      <div className="mt-1 text-xs text-zinc-500">
+      <div className="text-xs text-slate-500">{player.deck.name}</div>
+      <div className="mt-1 text-xs text-slate-500">
         {player.spriteInstance ? (
           <>
             {player.spriteInstance.name} · {player.spriteInstance.sprite.name}

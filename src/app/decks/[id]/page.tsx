@@ -82,7 +82,7 @@ export default async function DeckDetailPage({
           ) : (
             <h1 className="text-2xl font-bold tracking-tight">{deck.name}</h1>
           )}
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-slate-500">
             {deck.format.name} · {totalCards} cards · by{" "}
             {deck.user.username}
           </p>
@@ -117,21 +117,21 @@ export default async function DeckDetailPage({
         </div>
       )}
 
-      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Cards ({totalCards})
       </h2>
       {deck.cards.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">No cards in this deck yet.</p>
+        <p className="mt-3 text-sm text-slate-500">No cards in this deck yet.</p>
       ) : (
         <ul className="mt-3 flex flex-col gap-1.5">
           {deck.cards.map(({ card, quantity }) => (
             <li
               key={card.id}
-              className="flex items-center justify-between rounded border border-zinc-200 px-3 py-2"
+              className="flex items-center justify-between rounded border border-sky-200 bg-white px-3 py-2"
             >
               <div>
                 <span className="font-medium">{card.name}</span>{" "}
-                <span className="text-xs text-zinc-500">
+                <span className="text-xs text-slate-500">
                   {[card.type, card.rarity, card.set].filter(Boolean).join(" · ")}
                 </span>
               </div>
@@ -146,7 +146,7 @@ export default async function DeckDetailPage({
                       <input type="hidden" name="cardId" value={card.id} />
                       <button
                         type="submit"
-                        className="h-7 w-7 rounded border border-zinc-300 text-sm hover:bg-zinc-50"
+                        className="h-7 w-7 rounded border border-sky-300 text-sm hover:bg-sky-50"
                         aria-label={`Decrease ${card.name}`}
                       >
                         −
@@ -157,7 +157,7 @@ export default async function DeckDetailPage({
                       <input type="hidden" name="cardId" value={card.id} />
                       <button
                         type="submit"
-                        className="h-7 w-7 rounded border border-zinc-300 text-sm hover:bg-zinc-50"
+                        className="h-7 w-7 rounded border border-sky-300 text-sm hover:bg-sky-50"
                         aria-label={`Increase ${card.name}`}
                       >
                         +
@@ -168,7 +168,7 @@ export default async function DeckDetailPage({
                       <input type="hidden" name="cardId" value={card.id} />
                       <button
                         type="submit"
-                        className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
+                        className="rounded border border-sky-300 px-2 py-1 text-xs text-slate-600 hover:bg-sky-50"
                       >
                         Remove
                       </button>
@@ -183,7 +183,7 @@ export default async function DeckDetailPage({
 
       {isOwner && (
         <>
-          <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-slate-500">
             Add cards
           </h2>
           <CardPicker
@@ -193,7 +193,7 @@ export default async function DeckDetailPage({
             addCardAction={increaseCardAction}
           />
 
-          <div className="mt-10 border-t border-zinc-200 pt-6">
+          <div className="mt-10 border-t border-sky-200 pt-6">
             <form action={deleteDeckAction}>
               <input type="hidden" name="deckId" value={deck.id} />
               <button

@@ -24,7 +24,7 @@ export function GenerateCodesForm({
   return (
     <form action={formAction} className="mt-3 flex flex-wrap items-end gap-3">
       <div className="flex flex-col gap-1">
-        <label htmlFor="spriteId" className="text-xs font-medium text-zinc-600">
+        <label htmlFor="spriteId" className="text-xs font-medium text-slate-600">
           Sprite
         </label>
         <select
@@ -32,7 +32,7 @@ export function GenerateCodesForm({
           name="spriteId"
           required
           defaultValue=""
-          className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+          className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
         >
           <option value="" disabled>
             Choose a Sprite
@@ -45,7 +45,7 @@ export function GenerateCodesForm({
         </select>
       </div>
       <div className="flex flex-col gap-1">
-        <label htmlFor="editionId" className="text-xs font-medium text-zinc-600">
+        <label htmlFor="editionId" className="text-xs font-medium text-slate-600">
           Edition
         </label>
         <select
@@ -53,7 +53,7 @@ export function GenerateCodesForm({
           name="editionId"
           required
           defaultValue=""
-          className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+          className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
         >
           <option value="" disabled>
             Choose an edition
@@ -66,7 +66,7 @@ export function GenerateCodesForm({
         </select>
       </div>
       <div className="flex flex-col gap-1">
-        <label htmlFor="quantity" className="text-xs font-medium text-zinc-600">
+        <label htmlFor="quantity" className="text-xs font-medium text-slate-600">
           Number of codes
         </label>
         <input
@@ -77,7 +77,7 @@ export function GenerateCodesForm({
           min={MIN_CODES_PER_BATCH}
           max={MAX_CODES_PER_BATCH}
           defaultValue={100}
-          className="w-28 rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+          className="w-28 rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
         />
       </div>
       <button

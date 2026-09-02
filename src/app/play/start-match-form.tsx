@@ -23,7 +23,7 @@ export function StartMatchForm({
 
   if (decks.length === 0) {
     return (
-      <p className="mt-3 text-sm text-zinc-500">
+      <p className="mt-3 text-sm text-slate-500">
         You need a legal deck to start a match. Build one in{" "}
         <Link href="/decks/new" className="text-blue-600">
           Decks
@@ -39,7 +39,7 @@ export function StartMatchForm({
         name="deckId"
         required
         defaultValue=""
-        className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+        className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
       >
         <option value="" disabled>
           Choose a deck
@@ -53,7 +53,7 @@ export function StartMatchForm({
       <select
         name="spriteInstanceId"
         defaultValue=""
-        className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+        className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
       >
         <option value="">No Sprite</option>
         {sprites.map((sprite) => (

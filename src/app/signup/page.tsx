@@ -30,9 +30,9 @@ export default function SignupPage() {
               maxLength={20}
               pattern="[a-zA-Z0-9_]+"
               autoComplete="username"
-              className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+              className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
             />
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-slate-500">
               3-20 characters: letters, numbers, underscores.
             </p>
           </div>
@@ -46,7 +46,7 @@ export default function SignupPage() {
               type="email"
               required
               autoComplete="email"
-              className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+              className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
             />
           </div>
           <div className="flex flex-col gap-1">
@@ -60,9 +60,9 @@ export default function SignupPage() {
               required
               minLength={8}
               autoComplete="new-password"
-              className="rounded border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+              className="rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
             />
-            <p className="text-xs text-zinc-500">At least 8 characters.</p>
+            <p className="text-xs text-slate-500">At least 8 characters.</p>
           </div>
           {state.error && (
             <p className="text-sm text-red-600">{state.error}</p>
@@ -75,7 +75,7 @@ export default function SignupPage() {
             {pending ? "Creating account..." : "Create account"}
           </button>
         </form>
-        <p className="mt-4 text-sm text-zinc-600">
+        <p className="mt-4 text-sm text-slate-600">
           Already have an account?{" "}
           <Link href="/login" className="font-medium text-blue-600">
             Log in

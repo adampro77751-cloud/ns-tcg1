@@ -22,13 +22,13 @@ export function JoinMatchForm() {
         required
         placeholder="K7P4XQ"
         autoComplete="off"
-        className="rounded border border-zinc-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-blue-600"
+        className="rounded border border-sky-300 px-3 py-2 font-mono text-sm uppercase outline-none focus:border-blue-600"
       />
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
       <button
         type="submit"
         disabled={pending}
-        className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-60"
+        className="rounded border border-sky-300 px-4 py-2 text-sm font-medium hover:bg-sky-50 disabled:opacity-60"
       >
         {pending ? "Looking up..." : "Join match"}
       </button>

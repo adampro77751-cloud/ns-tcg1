@@ -80,11 +80,11 @@ export default async function PlayPage() {
       <h1 className="text-2xl font-bold tracking-tight">Play</h1>
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2">
-        <div className="rounded border border-zinc-200 p-4">
+        <div className="rounded border border-sky-200 bg-white p-4">
           <h2 className="font-semibold">Start a match</h2>
           <StartMatchForm decks={legalDecks} sprites={spriteOptions} />
         </div>
-        <div className="rounded border border-zinc-200 p-4">
+        <div className="rounded border border-sky-200 bg-white p-4">
           <h2 className="font-semibold">Join a match</h2>
           <JoinMatchForm />
         </div>
@@ -92,7 +92,7 @@ export default async function PlayPage() {
 
       {publicOpenMatches.length > 0 && (
         <>
-          <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-slate-500">
             Open matches
           </h2>
           <ul className="mt-3 flex flex-col gap-2">
@@ -100,7 +100,7 @@ export default async function PlayPage() {
               <li key={match.id}>
                 <Link
                   href={`/play/${match.id}`}
-                  className="flex items-center justify-between rounded border border-zinc-200 px-4 py-3 hover:border-zinc-400"
+                  className="flex items-center justify-between rounded border border-sky-200 bg-white px-4 py-3 hover:border-slate-400"
                 >
                   <span>
                     {match.format.name} · {match.players[0]?.user.username}
@@ -115,7 +115,7 @@ export default async function PlayPage() {
 
       {openMatches.length > 0 && (
         <>
-          <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-slate-500">
             Your open matches
           </h2>
           <ul className="mt-3 flex flex-col gap-2">
@@ -123,13 +123,13 @@ export default async function PlayPage() {
               <li key={match.id}>
                 <Link
                   href={`/play/${match.id}`}
-                  className="flex items-center justify-between rounded border border-zinc-200 px-4 py-3 hover:border-zinc-400"
+                  className="flex items-center justify-between rounded border border-sky-200 bg-white px-4 py-3 hover:border-slate-400"
                 >
                   <span>
                     {match.format.name} ·{" "}
                     <span className="font-mono">{match.joinCode}</span>
                   </span>
-                  <span className="text-xs text-zinc-500">
+                  <span className="text-xs text-slate-500">
                     {match.status.replace("_", " ")}
                   </span>
                 </Link>
