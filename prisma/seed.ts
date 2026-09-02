@@ -38,9 +38,38 @@ const sprites: SpriteSeed[] = [
     level4Ability: "All items you control get +20 attack.",
     level5Ability: "All items you control get +40 attack.",
   },
-  { name: "Air Sprite", slug: "air-sprite", rarity: "RARE" },
-  { name: "Earth Sprite", slug: "earth-sprite", rarity: "RARE" },
-  { name: "Ninja Sprite", slug: "ninja-sprite", rarity: "MYTHIC" },
+  {
+    name: "Air Sprite",
+    slug: "air-sprite",
+    rarity: "RARE",
+    level1Ability: "Your cards get +10 Speed.",
+    level2Ability: "Your cards get +20 Speed.",
+    level3Ability: "When you win a Speed check, gain +10 Attack for that attack.",
+    level4Ability: "Your cards get +40 Speed.",
+    level5Ability: "When you win a Speed check, draw a card.",
+  },
+  {
+    name: "Earth Sprite",
+    slug: "earth-sprite",
+    rarity: "RARE",
+    level1Ability: "Your Items get +10 Defence.",
+    level2Ability: "Your Items get +20 Defence.",
+    level3Ability: "When an Item you control survives an attack, it gets +10 Defence.",
+    level4Ability: "Your Items get +40 Defence.",
+    level5Ability:
+      "The first time an Item you control would be destroyed each turn, it survives with 10 Defence instead.",
+  },
+  {
+    name: "Ninja Sprite",
+    slug: "ninja-sprite",
+    rarity: "MYTHIC",
+    level1Ability: "Your Items get +10 Speed.",
+    level2Ability: "Your Items get +20 Speed.",
+    level3Ability: "When you win a Speed check, draw a card.",
+    level4Ability:
+      "Sneak Attack — Once per turn, you may swap an attacking Item with another Item you control.",
+    level5Ability: "When you use Sneak Attack, the new attacker gets +40 Attack.",
+  },
   {
     name: "Angel Sprite",
     slug: "angel-sprite",
@@ -63,7 +92,16 @@ const sprites: SpriteSeed[] = [
     level5Ability:
       "The first time you lose Health each turn, your Items get +40 Attack this turn.",
   },
-  { name: "Cosmic Sprite", slug: "cosmic-sprite", rarity: "LEGENDARY" },
+  {
+    name: "Cosmic Sprite",
+    slug: "cosmic-sprite",
+    rarity: "LEGENDARY",
+    level1Ability: "Once per turn, you may Relegate 1 to draw a card.",
+    level2Ability: "Once per turn, you may Relegate 2 to draw 2 cards.",
+    level3Ability: "The first card you Relegate each turn may be played this turn.",
+    level4Ability: "You may play 1 additional card from your Relegated cards each turn.",
+    level5Ability: "You may play 1 additional Item each turn.",
+  },
 ];
 
 const editions = [{ name: "1st Edition", slug: "1st-edition" }];
