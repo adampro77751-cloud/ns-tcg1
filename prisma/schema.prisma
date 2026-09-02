@@ -86,6 +86,7 @@ model Card {
   deckCards        DeckCard[]
   bannedInFormats      FormatBannedCard[]
   restrictedInFormats  FormatRestrictedCard[]
+  matchDeckSnapshots   MatchPlayerDeckCard[]
 }
 
 enum SpriteRarity {
@@ -404,9 +405,37 @@ model MatchPlayer {
 
   joinedAt DateTime @default(now())
 
+  // Immutable snapshot of exactly which cards (and how many copies) this
+  // player's Deck contained at the moment they joined this match — see
+  // deckCardSnapshot below.
+  deckCardSnapshot MatchPlayerDeckCard[]
+
   @@unique([matchId, userId])
   @@index([userId])
   @@index([spriteInstanceId])
+}
+
+// A frozen copy of one MatchPlayer's DeckCard list, written once (at
+// MatchPlayer creation — see snapshotMatchPlayerDeck in
+// src/lib/match-deck-snapshot.ts) and never updated afterward. Decks are
+// mutable — a player can add/remove cards from a Deck at any time — so
+// metagame card win-rate statistics can NEVER be computed by joining a
+// completed Match to a Deck's current DeckCard rows; that would silently
+// rewrite history every time someone edited a deck. This table is the
+// only reliable record of "which cards did this player actually have in
+// their deck for this specific match", and only matches with a snapshot
+// are eligible for card win-rate statistics (see src/lib/metagame.ts).
+model MatchPlayerDeckCard {
+  id            String      @id @default(cuid())
+  matchPlayerId String
+  matchPlayer   MatchPlayer @relation(fields: [matchPlayerId], references: [id], onDelete: Cascade)
+  cardId        String
+  card          Card        @relation(fields: [cardId], references: [id])
+  quantity      Int
+
+  @@unique([matchPlayerId, cardId])
+  @@index([matchPlayerId])
+  @@index([cardId])
 }
 
 enum ResultStatus {

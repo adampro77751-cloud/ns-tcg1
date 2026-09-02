@@ -9,6 +9,7 @@ import { createMatchWithJoinCode, createNextEventRoundMatch } from "@/lib/matche
 import { normalizeJoinCode } from "@/lib/join-code";
 import { awardMatchXp, awardEventXp } from "@/lib/sprite-progression";
 import { resolveOwnedSpriteInstance } from "@/lib/sprite-ownership";
+import { snapshotMatchPlayerDeck } from "@/lib/match-deck-snapshot";
 import {
   matchesToWinFor,
   getEventRoundWins,
@@ -132,7 +133,7 @@ export async function joinMatchAction(
       }
       // The @@unique([matchId, userId]) constraint also blocks the creator
       // from "joining" their own match a second time.
-      await tx.matchPlayer.create({
+      const matchPlayer = await tx.matchPlayer.create({
         data: {
           matchId,
           userId: session.user.id,
@@ -140,6 +141,7 @@ export async function joinMatchAction(
           spriteInstanceId,
         },
       });
+      await snapshotMatchPlayerDeck(tx, matchPlayer.id, deck.id);
     });
   } catch (err) {
     return { error: (err as Error).message ?? "Couldn't join this match." };

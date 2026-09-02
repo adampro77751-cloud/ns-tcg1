@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { generateJoinCode } from "@/lib/join-code";
+import { snapshotMatchPlayerDeck } from "@/lib/match-deck-snapshot";
 
 // Creates a Match + the creator's MatchPlayer row with a freshly generated
 // join code, retrying on the (astronomically unlikely) chance of collision.
@@ -20,20 +21,29 @@ export async function createMatchWithJoinCode(params: {
   for (let attempt = 0; attempt < 5; attempt++) {
     const joinCode = generateJoinCode();
     try {
-      return await prisma.match.create({
-        data: {
-          joinCode,
-          formatId: params.formatId,
-          isPrivate: params.eventId ? true : params.isPrivate,
-          eventId: params.eventId,
-          players: {
-            create: {
-              userId: params.creatorUserId,
-              deckId: params.creatorDeckId,
-              spriteInstanceId: params.creatorSpriteInstanceId,
+      return await prisma.$transaction(async (tx) => {
+        const match = await tx.match.create({
+          data: {
+            joinCode,
+            formatId: params.formatId,
+            isPrivate: params.eventId ? true : params.isPrivate,
+            eventId: params.eventId,
+            players: {
+              create: {
+                userId: params.creatorUserId,
+                deckId: params.creatorDeckId,
+                spriteInstanceId: params.creatorSpriteInstanceId,
+              },
             },
           },
-        },
+          include: { players: true },
+        });
+        await snapshotMatchPlayerDeck(
+          tx,
+          match.players[0].id,
+          params.creatorDeckId,
+        );
+        return match;
       });
     } catch (err) {
       const isCollision =
@@ -65,22 +75,32 @@ export async function createNextEventRoundMatch(params: {
   for (let attempt = 0; attempt < 5; attempt++) {
     const joinCode = generateJoinCode();
     try {
-      return await prisma.match.create({
-        data: {
-          joinCode,
-          formatId: params.formatId,
-          eventId: params.eventId,
-          isPrivate: true,
-          status: "IN_PROGRESS",
-          startedAt: new Date(),
-          players: {
-            create: params.players.map((p) => ({
-              userId: p.userId,
-              deckId: p.deckId,
-              spriteInstanceId: p.spriteInstanceId,
-            })),
+      return await prisma.$transaction(async (tx) => {
+        const match = await tx.match.create({
+          data: {
+            joinCode,
+            formatId: params.formatId,
+            eventId: params.eventId,
+            isPrivate: true,
+            status: "IN_PROGRESS",
+            startedAt: new Date(),
+            players: {
+              create: params.players.map((p) => ({
+                userId: p.userId,
+                deckId: p.deckId,
+                spriteInstanceId: p.spriteInstanceId,
+              })),
+            },
           },
-        },
+          include: { players: true },
+        });
+        for (const player of match.players) {
+          const deckId = params.players.find(
+            (p) => p.userId === player.userId,
+          )!.deckId;
+          await snapshotMatchPlayerDeck(tx, player.id, deckId);
+        }
+        return match;
       });
     } catch (err) {
       const isCollision =
