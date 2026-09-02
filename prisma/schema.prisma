@@ -106,6 +106,16 @@ model Sprite {
   releaseDate DateTime?
   createdAt   DateTime      @default(now())
 
+  // Per-level ability text (Level 1-5, matching MAX_SPRITE_LEVEL in
+  // src/lib/xp.ts). Null where a Sprite's abilities aren't yet known —
+  // never guessed. Kept as five plain fields rather than a JSON blob since
+  // the level count is fixed and this keeps them simple to select/display.
+  level1Ability String?
+  level2Ability String?
+  level3Ability String?
+  level4Ability String?
+  level5Ability String?
+
   instances       SpriteInstance[]
   redemptionCodes RedemptionCode[]
   codeBatches     SpriteCodeBatch[]

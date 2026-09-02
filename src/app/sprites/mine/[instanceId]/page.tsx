@@ -6,6 +6,7 @@ import { xpProgress } from "@/lib/xp";
 import { getSpriteInstanceMatchStats } from "@/lib/sprite-stats";
 import { RenameSpriteForm } from "./rename-sprite-form";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { LevelAbilities } from "@/components/sprite-level-abilities";
 
 const RARITY_STYLES: Record<string, string> = {
   RARE: "bg-blue-100 text-blue-800",
@@ -68,6 +69,11 @@ export default async function SpriteInstancePage({
           image: true,
           description: true,
           rulesText: true,
+          level1Ability: true,
+          level2Ability: true,
+          level3Ability: true,
+          level4Ability: true,
+          level5Ability: true,
         },
       },
       edition: { select: { name: true } },
@@ -158,9 +164,13 @@ export default async function SpriteInstancePage({
           <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
             Rules text
           </h2>
-          <p className="mt-1 text-sm text-zinc-800">{instance.sprite.rulesText}</p>
+          <p className="mt-1 whitespace-pre-line text-sm text-zinc-800">
+            {instance.sprite.rulesText}
+          </p>
         </div>
       )}
+
+      <LevelAbilities sprite={instance.sprite} currentLevel={instance.level} />
 
       <dl className="mt-6 grid grid-cols-2 gap-3 text-sm">
         <div>

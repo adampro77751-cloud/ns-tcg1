@@ -2,17 +2,48 @@ import { prisma } from "../src/lib/prisma";
 import { serializeAllowedSets } from "../src/lib/formats";
 
 // Real NS TCG Sprites. Rarity is authoritative (given). description,
-// rulesText, image, set, and releaseDate are intentionally left unset
-// rather than invented.
-const sprites = [
-  { name: "Water Sprite", slug: "water-sprite", rarity: "RARE" as const },
-  { name: "Fire Sprite", slug: "fire-sprite", rarity: "RARE" as const },
-  { name: "Air Sprite", slug: "air-sprite", rarity: "RARE" as const },
-  { name: "Earth Sprite", slug: "earth-sprite", rarity: "RARE" as const },
-  { name: "Ninja Sprite", slug: "ninja-sprite", rarity: "MYTHIC" as const },
-  { name: "Angel Sprite", slug: "angel-sprite", rarity: "MYTHIC" as const },
-  { name: "Devil Sprite", slug: "devil-sprite", rarity: "MYTHIC" as const },
-  { name: "Cosmic Sprite", slug: "cosmic-sprite", rarity: "LEGENDARY" as const },
+// image, set, and releaseDate are intentionally left unset rather than
+// invented. Per-level abilities (level1Ability..level5Ability) are filled
+// in only where the real text is known — left unset for the rest rather
+// than guessed.
+type SpriteSeed = {
+  name: string;
+  slug: string;
+  rarity: "RARE" | "MYTHIC" | "LEGENDARY";
+  level1Ability?: string;
+  level2Ability?: string;
+  level3Ability?: string;
+  level4Ability?: string;
+  level5Ability?: string;
+};
+
+const sprites: SpriteSeed[] = [
+  {
+    name: "Water Sprite",
+    slug: "water-sprite",
+    rarity: "RARE",
+    level1Ability: "Your cards get +10 Speed.",
+    level2Ability: "Your cards get +20 Speed.",
+    level3Ability: "When you play your second spell in a turn, draw a card.",
+    level4Ability: "You may play Spells during your opponent's turn.",
+    level5Ability: "You may play 1 additional Spell each turn.",
+  },
+  {
+    name: "Fire Sprite",
+    slug: "fire-sprite",
+    rarity: "RARE",
+    level1Ability: "If you would deal damage to an opponent, deal an additional 10 damage.",
+    level2Ability: "If you would deal damage to an opponent, deal an additional 20 damage.",
+    level3Ability: "If you would deal over 100 damage at 1 time, draw a card.",
+    level4Ability: "All items you control get +20 attack.",
+    level5Ability: "All items you control get +40 attack.",
+  },
+  { name: "Air Sprite", slug: "air-sprite", rarity: "RARE" },
+  { name: "Earth Sprite", slug: "earth-sprite", rarity: "RARE" },
+  { name: "Ninja Sprite", slug: "ninja-sprite", rarity: "MYTHIC" },
+  { name: "Angel Sprite", slug: "angel-sprite", rarity: "MYTHIC" },
+  { name: "Devil Sprite", slug: "devil-sprite", rarity: "MYTHIC" },
+  { name: "Cosmic Sprite", slug: "cosmic-sprite", rarity: "LEGENDARY" },
 ];
 
 const editions = [{ name: "1st Edition", slug: "1st-edition" }];

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { LevelAbilities } from "@/components/sprite-level-abilities";
 
 export default async function SpriteDetailPage({
   params,
@@ -68,9 +69,13 @@ export default async function SpriteDetailPage({
           <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
             Rules text
           </h2>
-          <p className="mt-1 text-sm text-zinc-800">{sprite.rulesText}</p>
+          <p className="mt-1 whitespace-pre-line text-sm text-zinc-800">
+            {sprite.rulesText}
+          </p>
         </div>
       )}
+
+      <LevelAbilities sprite={sprite} />
 
       <dl className="mt-6 grid grid-cols-2 gap-3 text-sm">
         {sprite.set && (
