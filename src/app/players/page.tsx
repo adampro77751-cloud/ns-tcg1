@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getPlayerStats } from "@/lib/stats";
+import { SPECIAL_USERNAME_TAGS } from "@/lib/special-tags";
 
 const RESULT_LIMIT = 100;
 
@@ -72,6 +73,11 @@ export default async function PlayersPage({
                     {user.role === "ADMIN" && (
                       <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800">
                         Owner
+                      </span>
+                    )}
+                    {SPECIAL_USERNAME_TAGS[user.username] && (
+                      <span className="rounded bg-pink-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-pink-800">
+                        {SPECIAL_USERNAME_TAGS[user.username]}
                       </span>
                     )}
                   </span>

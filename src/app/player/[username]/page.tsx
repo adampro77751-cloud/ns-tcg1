@@ -5,6 +5,7 @@ import { getPlayerStats, getRecentMatches } from "@/lib/stats";
 import { MAX_SPRITE_LEVEL } from "@/lib/xp";
 import { auth } from "@/auth";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { SPECIAL_USERNAME_TAGS } from "@/lib/special-tags";
 
 const RARITY_STYLES: Record<string, string> = {
   RARE: "bg-blue-100 text-blue-800",
@@ -84,6 +85,11 @@ export default async function PlayerProfilePage({
             {user.role === "ADMIN" && (
               <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase text-amber-800">
                 Owner
+              </span>
+            )}
+            {SPECIAL_USERNAME_TAGS[user.username] && (
+              <span className="rounded bg-pink-100 px-2 py-0.5 text-xs font-semibold uppercase text-pink-800">
+                {SPECIAL_USERNAME_TAGS[user.username]}
               </span>
             )}
           </h1>
