@@ -10,6 +10,7 @@ import {
 } from "@/lib/actions/deck-actions";
 import { RenameDeckForm } from "./rename-deck-form";
 import { CardPicker } from "./card-picker";
+import { CardNameHover } from "@/components/card-name-hover";
 
 export default async function DeckDetailPage({
   params,
@@ -39,6 +40,7 @@ export default async function DeckDetailPage({
               set: true,
               type: true,
               rarity: true,
+              image: true,
             },
           },
         },
@@ -65,6 +67,7 @@ export default async function DeckDetailPage({
           defence: true,
           speed: true,
           rulesText: true,
+          image: true,
         },
       })
     : [];
@@ -130,7 +133,7 @@ export default async function DeckDetailPage({
               className="flex items-center justify-between rounded border border-sky-200 bg-white px-3 py-2"
             >
               <div>
-                <span className="font-medium">{card.name}</span>{" "}
+                <CardNameHover name={card.name} image={card.image} className="font-medium" />{" "}
                 <span className="text-xs text-slate-500">
                   {[card.type, card.rarity, card.set].filter(Boolean).join(" · ")}
                 </span>

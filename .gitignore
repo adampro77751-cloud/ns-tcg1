@@ -56,3 +56,8 @@ next-env.d.ts
 /.claude/
 /.windsurf/
 /skills-lock.json
+
+# Raw source card-art dump (large, inconsistently named originals) — the
+# curated/compressed copies actually used by the app live in
+# public/cards/ and are committed there instead.
+/NS Cards/

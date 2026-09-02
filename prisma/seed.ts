@@ -127,6 +127,7 @@ type CardSeed = {
   defence?: number;
   speed?: number;
   rulesText?: string;
+  image?: string;
 };
 
 const cards: CardSeed[] = [
@@ -455,8 +456,9 @@ const cards: CardSeed[] = [
     rulesText: "Return up to 2 target cards from your discard pile to your hand.",
   },
   {
-    // New card, no rarity on record — not guessed.
-    name: "Mathomagics",
+    // Corrected to "Mathamagics" — the actual card art shows this
+    // spelling, not the "Mathomagics" originally guessed.
+    name: "Mathamagics",
     slug: "mathomagics",
     type: "Spell",
     rarity: "Rare",
@@ -750,6 +752,80 @@ const cards: CardSeed[] = [
   },
 ];
 
+// Real card-art images, keyed by slug, applied on top of `cards` below.
+// Sourced from scanned/rendered card images (each has its name printed on
+// it, used to positively identify it rather than guessed from filename)
+// and resized/compressed to web-friendly WebP. A small number of cards
+// (Cricket Ball, End Of Year Test) have no confirmed image available yet
+// and are deliberately left without one rather than reusing another
+// card's art.
+const CARD_IMAGES: Record<string, string> = {
+  "cricket-bat": "/cards/cricket-bat.webp",
+  "cricket-bowl": "/cards/cricket-bowl.webp",
+  cutlary: "/cards/cutlary.webp",
+  detention: "/cards/detention.webp",
+  history: "/cards/history.webp",
+  "old-book": "/cards/old-book.webp",
+  "it-support": "/cards/it-support.webp",
+  maths: "/cards/maths.webp",
+  "mountain-mist": "/cards/mountain-mist.webp",
+  pen: "/cards/pen.webp",
+  pencil: "/cards/pencil.webp",
+  punch: "/cards/punch.webp",
+  rubber: "/cards/rubber.webp",
+  running: "/cards/running.webp",
+  "school-lunches": "/cards/school-lunches.webp",
+  "star-drop": "/cards/star-drop.webp",
+  "tennis-balls": "/cards/tennis-balls.webp",
+  "the-head-of-the-school": "/cards/the-head-of-the-school.webp",
+  "bio-worm": "/cards/bio-worm.webp",
+  biologist: "/cards/biologist.webp",
+  dna: "/cards/dna.webp",
+  "chemistry-lesson": "/cards/chemistry-lesson.webp",
+  reflection: "/cards/reflection.webp",
+  "time-bomb": "/cards/time-bomb.webp",
+  "sasuage-roll-3": "/cards/sasuage-roll-3.webp",
+  "it-room": "/cards/it-room.webp",
+  budge: "/cards/budge.webp",
+  revision: "/cards/revision.webp",
+  "super-drop": "/cards/super-drop.webp",
+  "cathedral-pergrines": "/cards/cathedral-pergrines.webp",
+  "the-final-bell": "/cards/the-final-bell.webp",
+  "exam-marking": "/cards/exam-marking.webp",
+  "home-clothes-day": "/cards/home-clothes-day.webp",
+  pi: "/cards/pi.webp",
+  "the-curriculum": "/cards/the-curriculum.webp",
+  brooke: "/cards/brooke.webp",
+  coke: "/cards/coke.webp",
+  valpy: "/cards/valpy.webp",
+  nelson: "/cards/nelson.webp",
+  parker: "/cards/parker.webp",
+  school: "/cards/school.webp",
+  seagrim: "/cards/seagrim.webp",
+  repton: "/cards/repton.webp",
+  art: "/cards/art.webp",
+  cathedral: "/cards/cathedral.webp",
+  "credit-card": "/cards/credit-card.webp",
+  cupcake: "/cards/cupcake.webp",
+  "hockey-stick": "/cards/hockey-stick.webp",
+  library: "/cards/library.webp",
+  "lunch-card": "/cards/lunch-card.webp",
+  "pencil-case": "/cards/pencil-case.webp",
+  phone: "/cards/phone.webp",
+  physics: "/cards/physics.webp",
+  "school-computers": "/cards/school-computers.webp",
+  "table-tennis-table": "/cards/table-tennis-table.webp",
+  "radnor-springs": "/cards/radnor-springs.webp",
+  "school-bag": "/cards/school-bag.webp",
+  mathomagics: "/cards/mathomagics.webp",
+  "blast-from-the-past": "/cards/blast-from-the-past.webp",
+};
+
+for (const card of cards) {
+  const image = CARD_IMAGES[card.slug];
+  if (image) card.image = image;
+}
+
 async function main() {
   for (const edition of editions) {
     await prisma.edition.upsert({
@@ -800,6 +876,17 @@ async function main() {
     });
   }
   console.log(`Seeded ${cards.length} Cards.`);
+
+  // A few cards (e.g. Credit Card) already exist in the DB from the
+  // original bulk import but have never had their real type/stats/rules
+  // text entered — only their image is confirmed, so only that is
+  // applied here rather than inventing the rest. updateMany is a no-op if
+  // the slug doesn't exist, so this never creates a new row.
+  const seededSlugs = new Set(cards.map((c) => c.slug));
+  for (const [slug, image] of Object.entries(CARD_IMAGES)) {
+    if (seededSlugs.has(slug)) continue;
+    await prisma.card.updateMany({ where: { slug }, data: { image } });
+  }
 
   // The three NS TCG formats. Banned and restricted cards aren't seeded
   // here — add those once the card pool's legality needs diverge.

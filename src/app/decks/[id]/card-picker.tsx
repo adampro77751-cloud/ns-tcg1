@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { CardNameHover } from "@/components/card-name-hover";
 
 type CardSummary = {
   id: string;
@@ -12,6 +13,7 @@ type CardSummary = {
   defence: number | null;
   speed: number | null;
   rulesText: string | null;
+  image: string | null;
 };
 
 export function CardPicker({
@@ -122,7 +124,11 @@ export function CardPicker({
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-medium">{card.name}</span>
+                    <CardNameHover
+                      name={card.name}
+                      image={card.image}
+                      className="font-medium"
+                    />
                     <span className="text-xs text-slate-500">
                       {[card.type, card.rarity, card.set].filter(Boolean).join(" · ")}
                     </span>
