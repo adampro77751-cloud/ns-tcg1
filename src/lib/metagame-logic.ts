@@ -15,12 +15,14 @@ export type CardUsageStat = {
   cardId: string;
   decks: number;
   usagePercent: number;
+  totalCopies: number;
   averageCopies: number;
 };
 
 // A deck containing 3 copies of a card still counts as ONE deck for usage
-// purposes — decks are deduped via a Set — while averageCopies separately
-// sums total copies across those decks and divides by the deck count.
+// purposes — decks are deduped via a Set — while totalCopies/averageCopies
+// separately sum quantities across those decks (totalCopies increases by
+// the full quantity; it is never conflated with the deck count above).
 export function computeCardUsage(
   rows: DeckCardRow[],
   totalDecks: number,
@@ -44,6 +46,7 @@ export function computeCardUsage(
       cardId,
       decks,
       usagePercent: totalDecks > 0 ? (decks / totalDecks) * 100 : 0,
+      totalCopies: entry.totalCopies,
       averageCopies: decks > 0 ? entry.totalCopies / decks : 0,
     });
   }

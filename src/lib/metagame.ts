@@ -303,6 +303,7 @@ export async function getCardMetaDetail(
     cardId,
     decks: 0,
     usagePercent: 0,
+    totalCopies: 0,
     averageCopies: 0,
   };
 

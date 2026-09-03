@@ -49,6 +49,46 @@ describe("computeCardUsage", () => {
     expect(usage.get("coke")?.averageCopies).toBeCloseTo(2);
   });
 
+  it("matches the worked Deck A/B/C debugging example exactly", () => {
+    // Deck A: 3 Coke, 2 Parker, 1 Pen
+    // Deck B: 2 Coke, 1 Pen
+    // Deck C: 1 Parker
+    // (in-memory only — never written to the real/production database)
+    const rows: DeckCardRow[] = [
+      { deckId: "A", cardId: "coke", quantity: 3 },
+      { deckId: "A", cardId: "parker", quantity: 2 },
+      { deckId: "A", cardId: "pen", quantity: 1 },
+      { deckId: "B", cardId: "coke", quantity: 2 },
+      { deckId: "B", cardId: "pen", quantity: 1 },
+      { deckId: "C", cardId: "parker", quantity: 1 },
+    ];
+    const usage = computeCardUsage(rows, 3);
+
+    const coke = usage.get("coke")!;
+    expect(coke.decks).toBe(2);
+    expect(coke.totalCopies).toBe(5);
+    expect(coke.averageCopies).toBeCloseTo(2.5);
+    expect(coke.usagePercent).toBeCloseTo(66.7, 1);
+
+    const parker = usage.get("parker")!;
+    expect(parker.decks).toBe(2);
+    expect(parker.totalCopies).toBe(3);
+    expect(parker.averageCopies).toBeCloseTo(1.5);
+    expect(parker.usagePercent).toBeCloseTo(66.7, 1);
+
+    const pen = usage.get("pen")!;
+    expect(pen.decks).toBe(2);
+    expect(pen.totalCopies).toBe(2);
+    expect(pen.averageCopies).toBeCloseTo(1);
+    expect(pen.usagePercent).toBeCloseTo(66.7, 1);
+
+    // Ranking: highest deck-count first. Coke/Parker/Pen are tied on deck
+    // count here, so a stable secondary ordering doesn't matter for this
+    // check — what matters is nothing with fewer decks outranks them.
+    const ranked = Array.from(usage.values()).sort((x, y) => y.decks - x.decks);
+    expect(ranked.every((c) => c.decks === 2)).toBe(true);
+  });
+
   it("format filtering: only decks within the eligible (pre-filtered) set are counted", () => {
     const basicFormatRows: DeckCardRow[] = [
       { deckId: "b1", cardId: "coke", quantity: 1 },
@@ -62,6 +102,20 @@ describe("computeCardUsage", () => {
     const allFormats = computeCardUsage(allFormatsRows, 3);
     expect(basicOnly.get("coke")?.decks).toBe(2);
     expect(allFormats.get("coke")?.decks).toBe(3);
+  });
+
+  it("ranks cards by number of different decks containing them, highest first", () => {
+    const rows: DeckCardRow[] = [
+      { deckId: "d1", cardId: "coke", quantity: 1 },
+      { deckId: "d2", cardId: "coke", quantity: 1 },
+      { deckId: "d3", cardId: "coke", quantity: 1 },
+      { deckId: "d1", cardId: "parker", quantity: 1 },
+      { deckId: "d2", cardId: "parker", quantity: 1 },
+      { deckId: "d1", cardId: "pen", quantity: 1 },
+    ];
+    const usage = computeCardUsage(rows, 3);
+    const ranked = Array.from(usage.values()).sort((a, b) => b.decks - a.decks);
+    expect(ranked.map((c) => c.cardId)).toEqual(["coke", "parker", "pen"]);
   });
 });
 

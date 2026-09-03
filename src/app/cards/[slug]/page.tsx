@@ -104,6 +104,10 @@ export default async function CardDetailPage({
           value={String(detail?.usage.decks ?? 0)}
         />
         <StatTile
+          label="Total Copies"
+          value={String(detail?.usage.totalCopies ?? 0)}
+        />
+        <StatTile
           label="Average Copies"
           value={(detail?.usage.averageCopies ?? 0).toFixed(1)}
         />

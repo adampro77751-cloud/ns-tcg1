@@ -141,7 +141,11 @@ export default async function MetagamePage({
       <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Most Played Cards
       </h2>
-      {mostPlayed.cards.length === 0 ? (
+      {mostPlayed.totalDecks === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">
+          No deck data available yet.
+        </p>
+      ) : mostPlayed.cards.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500">
           No decks match the current filters.
         </p>
@@ -163,13 +167,46 @@ export default async function MetagamePage({
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-600">
                   <span>Used in {card.usagePercent.toFixed(1)}% of decks</span>
-                  <span>Decks: {card.decks}</span>
-                  <span>Average copies: {card.averageCopies.toFixed(1)}</span>
+                  <span>{card.decks} decks</span>
+                  <span>{card.totalCopies} total copies</span>
+                  <span>Average: {card.averageCopies.toFixed(1)} copies per deck</span>
                 </div>
               </Link>
             </li>
           ))}
         </ol>
+      )}
+
+      {mostPlayed.cards.length > 0 && (
+        <>
+          <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Most Played Cards — Top 10
+          </h2>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {mostPlayed.cards.slice(0, 10).map((card, i) => (
+              <Link
+                key={card.id}
+                href={`/cards/${card.slug}`}
+                className="rounded border border-sky-300 bg-sky-50 px-4 py-3 hover:border-blue-400"
+              >
+                <div className="flex items-baseline justify-between">
+                  <span className="font-semibold">
+                    #{i + 1} {card.name}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {[card.rarity, card.type].filter(Boolean).join(" • ")}
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-600">
+                  <span>Used in {card.usagePercent.toFixed(1)}% of decks</span>
+                  <span>{card.decks} decks</span>
+                  <span>{card.totalCopies} total copies</span>
+                  <span>Average: {card.averageCopies.toFixed(1)} copies per deck</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </>
       )}
 
       <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-slate-500">
