@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { logoutAction } from "@/lib/actions/auth-actions";
+import { NavLinks } from "./nav-links";
 
 const links = [
   { href: "/play", label: "Play" },
@@ -17,32 +18,17 @@ export async function Nav() {
   const session = await auth();
 
   return (
-    <header className="border-b border-sky-200 bg-white">
+    <header className="relative border-b border-sky-200 bg-white">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
         <div className="flex items-center gap-8">
           <Link href="/" className="text-lg font-bold tracking-tight text-blue-700">
             NS TCG
           </Link>
-          <nav className="flex items-center gap-5 text-sm text-slate-600">
-            {links.map((link) => (
-              <Link key={link.href} href={link.href} className="hover:text-blue-600">
-                {link.label}
-              </Link>
-            ))}
-            {session?.user && (
-              <Link
-                href={`/player/${session.user.username}`}
-                className="hover:text-blue-600"
-              >
-                Profile
-              </Link>
-            )}
-            {session?.user?.role === "ADMIN" && (
-              <Link href="/admin" className="hover:text-blue-600">
-                Admin
-              </Link>
-            )}
-          </nav>
+          <NavLinks
+            links={links}
+            profileHref={session?.user ? `/player/${session.user.username}` : null}
+            isAdmin={session?.user?.role === "ADMIN"}
+          />
         </div>
         <div>
           {session?.user ? (
