@@ -23,18 +23,17 @@ export async function Nav() {
           <Link href="/" className="text-lg font-bold tracking-tight text-blue-700">
             NS TCG
           </Link>
-          <NavLinks
-            links={links}
-            profileHref={session?.user ? `/player/${session.user.username}` : null}
-            isAdmin={session?.user?.role === "ADMIN"}
-          />
+          <NavLinks links={links} isAdmin={session?.user?.role === "ADMIN"} />
         </div>
         <div>
           {session?.user ? (
             <form action={logoutAction} className="flex items-center gap-3">
-              <span className="text-sm text-slate-600">
+              <Link
+                href={`/player/${session.user.username}`}
+                className="text-sm text-slate-600 hover:text-blue-600"
+              >
                 {session.user.username}
-              </span>
+              </Link>
               <button
                 type="submit"
                 className="rounded border border-sky-300 px-3 py-1.5 text-sm hover:bg-sky-50"

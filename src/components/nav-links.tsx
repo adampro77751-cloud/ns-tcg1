@@ -10,18 +10,15 @@ type NavLink = { href: string; label: string };
 // wrapping messily across multiple lines.
 export function NavLinks({
   links,
-  profileHref,
   isAdmin,
 }: {
   links: NavLink[];
-  profileHref: string | null;
   isAdmin: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
   const allLinks: NavLink[] = [
     ...links,
-    ...(profileHref ? [{ href: profileHref, label: "Profile" }] : []),
     ...(isAdmin ? [{ href: "/admin", label: "Admin" }] : []),
   ];
 
