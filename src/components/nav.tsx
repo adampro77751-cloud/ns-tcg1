@@ -7,7 +7,6 @@ const links = [
   { href: "/play", label: "Play" },
   { href: "/decks", label: "Decks" },
   { href: "/sprites", label: "Sprites" },
-  { href: "/events", label: "Events" },
   { href: "/metagame", label: "Metagame" },
   { href: "/players", label: "Players" },
   { href: "/formats", label: "Formats" },
