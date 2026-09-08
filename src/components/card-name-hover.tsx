@@ -28,13 +28,9 @@ export function CardNameHover({
     >
       {name}
       {hover && (
-        <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2">
+        <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 aspect-[5/7] w-64 -translate-x-1/2 overflow-hidden rounded-2xl border-4 border-white bg-white shadow-2xl ring-1 ring-violet-200 sm:w-80">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={image}
-            alt={name}
-            className="w-44 rounded-lg border border-sky-300 shadow-xl"
-          />
+          <img src={image} alt={name} className="h-full w-full object-contain" />
         </span>
       )}
     </span>
