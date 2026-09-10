@@ -59,6 +59,17 @@ export default async function Home() {
             >
               My Profile
             </Link>
+            <div className="flex flex-col items-center gap-1.5">
+              <Link
+                href="/store"
+                className="rounded-full border border-white/60 bg-white/10 px-7 py-3 text-sm font-bold uppercase tracking-wide text-white backdrop-blur-sm transition hover:scale-105 hover:bg-white/20"
+              >
+                Store
+              </Link>
+              <span className="text-xs font-medium text-sky-100">
+                Pre-order NS TCG packs
+              </span>
+            </div>
           </div>
         </div>
       </section>
