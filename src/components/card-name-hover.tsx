@@ -28,7 +28,10 @@ export function CardNameHover({
     >
       {name}
       {hover && (
-        <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 aspect-[5/7] w-64 -translate-x-1/2 overflow-hidden rounded-2xl border-4 border-white bg-white shadow-2xl ring-1 ring-violet-200 sm:w-80">
+        // Opens upward (anchored to the bottom of the trigger) rather than
+        // downward — a card near the bottom of a long list would otherwise
+        // push this ~320px-tall preview off-screen/behind other content.
+        <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 aspect-[5/7] w-64 -translate-x-1/2 overflow-hidden rounded-2xl border-4 border-white bg-white shadow-2xl ring-1 ring-violet-200 sm:w-80">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={image} alt={name} className="h-full w-full object-contain" />
         </span>
