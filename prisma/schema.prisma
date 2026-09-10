@@ -46,6 +46,9 @@ model User {
   organizedEvents Event[]       @relation("Organizer")
   wonEvents       Event[]       @relation("EventWinner")
   eventPlayers    EventPlayer[]
+
+  orders          Order[]       @relation("OrderedBy")
+  deliveredOrders Order[]       @relation("DeliveredBy")
 }
 
 // Public-facing profile data, separate from auth/account data so it is safe
@@ -548,4 +551,55 @@ model EventPlayer {
   @@unique([eventId, userId])
   @@index([userId])
   @@index([spriteInstanceId])
+}
+
+// ---------------------------------------------------------------------------
+// Store (pack preorders)
+// ---------------------------------------------------------------------------
+
+// A real, limited-stock preorderable pack. `stock` is the number still
+// available — decremented atomically (compare-and-set, same pattern as
+// Match join) when an Order is placed, and NEVER restored when an Order is
+// marked DELIVERED: a delivered pack is genuinely gone from stock, not
+// "returned". There is no real payment processing — this is a reservation
+// system only (see Order below).
+model Pack {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  priceCents Int
+  stock     Int
+  createdAt DateTime @default(now())
+
+  orders Order[]
+}
+
+enum OrderStatus {
+  RESERVED // stock has been decremented; awaiting delivery
+  DELIVERED // handed over — closes out the reservation
+}
+
+// A single preorder reservation for one Pack. Quantity is capped (see
+// MAX_ORDER_QUANTITY in src/lib/orders.ts) and validated server-side, never
+// trusted from client input. No price is ever charged here — this only
+// records that stock was reserved and, later, that it was delivered.
+model Order {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation("OrderedBy", fields: [userId], references: [id])
+  packId   String
+  pack     Pack   @relation(fields: [packId], references: [id])
+  quantity Int
+
+  status OrderStatus @default(RESERVED)
+
+  createdAt DateTime @default(now())
+
+  deliveredAt   DateTime?
+  deliveredById String?
+  deliveredBy   User?     @relation("DeliveredBy", fields: [deliveredById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([packId])
+  @@index([status])
 }

@@ -826,6 +826,14 @@ for (const card of cards) {
   if (image) card.image = image;
 }
 
+// Real store Packs. `stock` is only ever set on first creation — re-running
+// this seed must NEVER reset it back up, since real Orders decrement it
+// over time (that's the actual, current inventory count, not a fixture).
+const packs = [
+  { name: "Basic Pack", slug: "basic-pack", priceCents: 50, initialStock: 40 },
+  { name: "Shiny Pack", slug: "shiny-pack", priceCents: 100, initialStock: 20 },
+];
+
 async function main() {
   for (const edition of editions) {
     await prisma.edition.upsert({
@@ -982,6 +990,28 @@ async function main() {
   } else {
     console.log('Granted ADMIN role to the "Admin" account.');
   }
+
+  for (const pack of packs) {
+    const existing = await prisma.pack.findUnique({ where: { slug: pack.slug } });
+    if (existing) {
+      // Never touch `stock` here — it's live inventory, decremented by
+      // real Orders. Only keep name/price in sync.
+      await prisma.pack.update({
+        where: { slug: pack.slug },
+        data: { name: pack.name, priceCents: pack.priceCents },
+      });
+    } else {
+      await prisma.pack.create({
+        data: {
+          name: pack.name,
+          slug: pack.slug,
+          priceCents: pack.priceCents,
+          stock: pack.initialStock,
+        },
+      });
+    }
+  }
+  console.log(`Seeded ${packs.length} Packs.`);
 }
 
 main()
