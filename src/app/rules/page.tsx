@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 
 export default async function RulesPage() {
@@ -8,8 +7,10 @@ export default async function RulesPage() {
     select: {
       id: true,
       name: true,
+      description: true,
       minDeckSize: true,
       maxDeckSize: true,
+      maxCopiesPerCard: true,
       startingHand: true,
       startingHealth: true,
     },
@@ -23,9 +24,9 @@ export default async function RulesPage() {
         <p>
           Players attempt to reduce their opponent&apos;s health to 0.
           Starting health depends on the format being played — see{" "}
-          <Link href="/formats" className="text-blue-600">
+          <a href="#formats" className="text-blue-600">
             Formats
-          </Link>{" "}
+          </a>{" "}
           below for each format&apos;s exact starting health.
         </p>
       </Section>
@@ -114,32 +115,52 @@ export default async function RulesPage() {
         </ul>
       </Section>
 
-      <Section title="Formats">
-        <div className="flex flex-col gap-3">
+      <Section title="Formats" id="formats">
+        <p>
+          Every format&apos;s deck-construction and match-setup rules,
+          pulled directly from the format configuration used across the
+          site — otherwise follow normal NS TCG rules unless a format
+          specifically changes something.
+        </p>
+        <div className="mt-3 flex flex-col gap-4">
           {formats.map((format) => (
-            <div key={format.id} className="rounded border border-sky-200 bg-white p-4">
+            <div
+              key={format.id}
+              className="rounded border border-sky-200 bg-white p-5"
+            >
               <h3 className="font-semibold">{format.name}</h3>
-              <p className="mt-1 text-sm text-slate-600">
-                Deck size:{" "}
-                {format.maxDeckSize && format.maxDeckSize === format.minDeckSize
-                  ? format.minDeckSize
-                  : format.maxDeckSize
-                    ? `${format.minDeckSize}–${format.maxDeckSize}`
-                    : `${format.minDeckSize}+`}{" "}
-                · Starting hand: {format.startingHand} · Starting health:{" "}
-                {format.startingHealth}
-              </p>
+              {format.description && (
+                <p className="mt-1 text-sm text-slate-600">
+                  {format.description}
+                </p>
+              )}
+              <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                <div>
+                  <dt className="text-slate-500">Deck size</dt>
+                  <dd>
+                    {format.maxDeckSize && format.maxDeckSize === format.minDeckSize
+                      ? format.minDeckSize
+                      : format.maxDeckSize
+                        ? `${format.minDeckSize}–${format.maxDeckSize}`
+                        : `${format.minDeckSize}+`}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Starting hand</dt>
+                  <dd>{format.startingHand}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Starting health</dt>
+                  <dd>{format.startingHealth}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Max copies/card</dt>
+                  <dd>{format.maxCopiesPerCard}</dd>
+                </div>
+              </dl>
             </div>
           ))}
         </div>
-        <p className="mt-3">
-          See the{" "}
-          <Link href="/formats" className="text-blue-600">
-            Formats page
-          </Link>{" "}
-          for full construction rules, or otherwise follow normal NS TCG
-          rules unless a format specifically changes something.
-        </p>
       </Section>
     </div>
   );
@@ -148,12 +169,14 @@ export default async function RulesPage() {
 function Section({
   title,
   children,
+  id,
 }: {
   title: string;
   children: React.ReactNode;
+  id?: string;
 }) {
   return (
-    <section className="mt-8">
+    <section id={id} className="mt-8 scroll-mt-20">
       <h2 className="text-lg font-semibold border-b border-sky-200 pb-1">
         {title}
       </h2>
