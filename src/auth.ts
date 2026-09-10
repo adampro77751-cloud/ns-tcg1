@@ -43,6 +43,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           user?.passwordHash ?? DUMMY_HASH,
         );
         if (!user || !passwordValid) return null;
+        // Banned accounts can't establish a new session — same generic
+        // rejection as a bad password, no separate "you're banned" message,
+        // consistent with this flow's existing no-enumeration posture.
+        if (user.bannedAt) return null;
 
         return {
           id: user.id,
@@ -59,6 +63,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = user.id;
         token.username = user.username;
         token.role = user.role;
+        return token;
+      }
+      // Re-checked on every subsequent request (not just at sign-in), so a
+      // ban takes effect immediately for someone already logged in rather
+      // than only blocking their next login attempt. Throwing here is what
+      // invalidates the session — auth() then returns null on this and
+      // every later request for this account.
+      const current = await prisma.user.findUnique({
+        where: { id: token.id },
+        select: { bannedAt: true },
+      });
+      if (!current || current.bannedAt) {
+        throw new Error("Account is no longer active.");
       }
       return token;
     },

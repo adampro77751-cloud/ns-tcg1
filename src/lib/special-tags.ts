@@ -2,4 +2,5 @@
 // profile/listing, purely by username — not tied to any role/permission.
 export const SPECIAL_USERNAME_TAGS: Record<string, string> = {
   HotChick: "Baddie",
+  Oscame: "Official Seller",
 };

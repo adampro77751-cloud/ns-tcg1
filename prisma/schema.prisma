@@ -30,6 +30,15 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // Set by an admin banning this account (src/lib/actions/admin-user-actions.ts).
+  // A ban blocks login and immediately invalidates any existing session
+  // (checked on every request — see the jwt callback in src/auth.ts) — it
+  // never deletes the account or its data. A hard delete would cascade
+  // into this user's decks/matches/orders and could corrupt OTHER
+  // players' shared match/metagame history, so banning is deliberately a
+  // reversible access flag, not a removal.
+  bannedAt DateTime?
+
   profile PlayerProfile?
 
   ownedSprites   SpriteInstance[]
