@@ -31,7 +31,7 @@ export default async function Home() {
 
         <div className="relative mx-auto max-w-3xl">
           <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-1.5 text-sm font-semibold text-white ring-1 ring-white/30 backdrop-blur-sm">
-            🔥 NS TCG Releases Friday
+            🔥 NS TCG Releases Tuesday
           </span>
 
           <h1 className="mt-6 text-6xl font-black tracking-tight drop-shadow-lg sm:text-7xl md:text-8xl">

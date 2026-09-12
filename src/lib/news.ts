@@ -14,12 +14,12 @@ export type NewsItem = {
 
 export const NEWS_ITEMS: NewsItem[] = [
   {
-    id: "release-friday",
-    title: "NS TCG Releases Friday!",
+    id: "release-tuesday",
+    title: "NS TCG Releases Tuesday!",
     category: "NS TCG",
     badge: "RELEASE NEWS",
     text:
-      "NS TCG officially releases this Friday. Players will soon be able to start playing, building decks, and discovering NS TCG for themselves — get ready.",
+      "NS TCG officially releases this Tuesday. Players will soon be able to start playing, building decks, and discovering NS TCG for themselves — get ready.",
     featured: true,
   },
 ];
