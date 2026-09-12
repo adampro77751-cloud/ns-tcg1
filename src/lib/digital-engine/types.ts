@@ -1,0 +1,63 @@
+// Pure, server-authoritative game state for a Digital Play match. This
+// entire tree is what's persisted as DigitalMatch.state (JSON). It has
+// zero dependency on Prisma/Next.js so the engine (engine.ts) is fully
+// unit-testable in isolation, same principle as src/lib/metagame-logic.ts.
+//
+// IMPORTANT — what this does NOT model yet (see PHASE-1 limitations in the
+// final report, not invented here): Delay, Window, and per-card ability
+// effects. Items/Spells currently interact with the game only through
+// their base Attack/Defence/Speed stats (Items) or by being playable at
+// all (Spells currently have no coded effect — see abilities.ts).
+
+export type Zone = "DECK" | "HAND" | "BATTLEFIELD" | "DISCARD";
+
+// One physical copy of a card, for the duration of a single match. Distinct
+// from Card.id: two copies of the same Card each get their own
+// CardInstance so they can independently be tired/attacking/etc.
+export type CardInstance = {
+  instanceId: string;
+  cardId: string;
+  /** True only while on BATTLEFIELD and having attacked this cycle. */
+  tired: boolean;
+};
+
+export type PlayerGameState = {
+  /** null identifies the V1 rules-bot's slot. */
+  userId: string | null;
+  health: number;
+  spriteInstanceId: string | null;
+  deck: CardInstance[]; // index 0 = top of deck
+  hand: CardInstance[];
+  battlefield: CardInstance[];
+  discard: CardInstance[];
+  itemsPlayedThisTurn: number;
+  spellsPlayedThisTurn: number;
+};
+
+export type GamePhase = "MAIN" | "COMPLETE";
+
+export type DigitalGameState = {
+  matchId: string;
+  formatId: string;
+  turnNumber: number;
+  /** Index into `players` of whoever's turn it currently is. */
+  activePlayerIndex: 0 | 1;
+  phase: GamePhase;
+  players: [PlayerGameState, PlayerGameState];
+  /** Human-readable event log, most recent last. Public — no hidden info. */
+  log: string[];
+  winnerIndex: 0 | 1 | null;
+};
+
+// Card data the engine needs but does not itself store (kept in the DB,
+// looked up once per action and passed in) — this is what makes the
+// engine reusable/testable without a database.
+export type EngineCard = {
+  id: string;
+  type: string | null; // "Item" | "Spell" | ... (free text in the DB)
+  attack: number | null;
+  defence: number | null;
+  speed: number | null;
+};
+
+export class IllegalActionError extends Error {}

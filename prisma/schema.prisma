@@ -58,6 +58,9 @@ model User {
 
   orders          Order[]       @relation("OrderedBy")
   deliveredOrders Order[]       @relation("DeliveredBy")
+
+  digitalMatchPlayers DigitalMatchPlayer[]
+  wonDigitalMatches   DigitalMatch[]       @relation("DigitalMatchWinner")
 }
 
 // Public-facing profile data, separate from auth/account data so it is safe
@@ -99,6 +102,7 @@ model Card {
   bannedInFormats      FormatBannedCard[]
   restrictedInFormats  FormatRestrictedCard[]
   matchDeckSnapshots   MatchPlayerDeckCard[]
+  digitalMatchDeckSnapshots DigitalMatchPlayerDeckCard[]
 }
 
 enum SpriteRarity {
@@ -203,6 +207,7 @@ model SpriteInstance {
   redemptionCode RedemptionCode?
   matchPlayers   MatchPlayer[]
   eventPlayers   EventPlayer[]
+  digitalMatchPlayers DigitalMatchPlayer[]
 
   @@index([ownerId])
   @@index([spriteId])
@@ -302,6 +307,7 @@ model Format {
   decks           Deck[]
   matches         Match[]
   events          Event[]
+  digitalMatches  DigitalMatch[]
 }
 
 model FormatBannedCard {
@@ -341,6 +347,7 @@ model Deck {
   cards        DeckCard[]
   matchPlayers MatchPlayer[]
   eventPlayers EventPlayer[]
+  digitalMatchPlayers DigitalMatchPlayer[]
 
   @@index([userId])
 }
@@ -611,4 +618,97 @@ model Order {
   @@index([userId])
   @@index([packId])
   @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Digital Play (Beta)
+// ---------------------------------------------------------------------------
+// Completely separate record types from the physical Match system, per
+// explicit beta-safety requirement — a bug in digital play can never touch
+// physical match data. References real User/Format/Deck/Card/SpriteInstance
+// rows rather than duplicating them.
+
+enum DigitalMatchMode {
+  ONLINE
+  BOT
+}
+
+enum DigitalMatchStatus {
+  WAITING // creator has set up the match, waiting for a second player (ONLINE only)
+  READY // both players present, waiting for both to click Ready
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// A digital match's live, authoritative game state (hands, battlefields,
+// health, whose turn, etc — see src/lib/digital-engine/types.ts for the
+// exact shape) lives entirely in `state`, a server-owned JSON blob. Only
+// server code (src/lib/actions/digital-match-actions.ts) ever reads or
+// writes it; the client only ever receives a redacted view with the
+// opponent's hand/deck contents stripped (see getVisibleState).
+model DigitalMatch {
+  id         String             @id @default(cuid())
+  joinCode   String             @unique
+  formatId   String
+  format     Format             @relation(fields: [formatId], references: [id])
+  mode       DigitalMatchMode
+  status     DigitalMatchStatus @default(WAITING)
+  state      Json?
+  winnerId   String?
+  winner     User?              @relation("DigitalMatchWinner", fields: [winnerId], references: [id])
+  createdAt  DateTime           @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  players DigitalMatchPlayer[]
+
+  @@index([formatId])
+}
+
+model DigitalMatchPlayer {
+  id      String       @id @default(cuid())
+  matchId String
+  match   DigitalMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  // Null + isBot=true represents the V1 rules-based bot opponent — there is
+  // no bot User account, so this is a legitimate first-class "no user" slot
+  // rather than a placeholder to work around.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+  isBot  Boolean @default(false)
+
+  // The real saved Deck this player picked (kept for reference/display —
+  // the actual cards used in the match are the immutable snapshot below,
+  // never this Deck's current, possibly since-edited, contents).
+  deckId String?
+  deck   Deck?   @relation(fields: [deckId], references: [id])
+
+  spriteInstanceId String?
+  spriteInstance    SpriteInstance? @relation(fields: [spriteInstanceId], references: [id], onDelete: SetNull)
+
+  ready    Boolean  @default(false)
+  joinedAt DateTime @default(now())
+
+  deckSnapshot DigitalMatchPlayerDeckCard[]
+
+  @@unique([matchId, userId])
+  @@index([userId])
+}
+
+// Immutable snapshot of a DigitalMatchPlayer's deck contents at the moment
+// they joined/created the match — same principle as MatchPlayerDeckCard for
+// physical matches, so editing a saved Deck mid-game can never change an
+// active match.
+model DigitalMatchPlayerDeckCard {
+  id                   String              @id @default(cuid())
+  digitalMatchPlayerId String
+  digitalMatchPlayer   DigitalMatchPlayer  @relation(fields: [digitalMatchPlayerId], references: [id], onDelete: Cascade)
+  cardId               String
+  card                 Card                @relation(fields: [cardId], references: [id])
+  quantity             Int
+
+  @@unique([digitalMatchPlayerId, cardId])
+  @@index([digitalMatchPlayerId])
+  @@index([cardId])
 }

@@ -10,6 +10,7 @@ export default async function Home() {
   const profileHref = session?.user
     ? `/player/${session.user.username}`
     : "/login";
+  const isAdmin = session?.user?.role === "ADMIN";
 
   const legendaryCards = await prisma.card.findMany({
     where: { rarity: "Legendary", image: { not: null } },
@@ -68,6 +69,32 @@ export default async function Home() {
               </Link>
               <span className="text-xs font-medium text-sky-100">
                 Pre-order NS TCG packs
+              </span>
+            </div>
+            <div className="flex flex-col items-center gap-1.5">
+              {isAdmin ? (
+                <Link
+                  href="/play/digital"
+                  className="relative rounded-full border border-white/60 bg-white/10 px-7 py-3 text-sm font-bold uppercase tracking-wide text-white backdrop-blur-sm transition hover:scale-105 hover:bg-white/20"
+                >
+                  Digital Play
+                  <span className="absolute -right-2 -top-2 rounded-full bg-fuchsia-500 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white shadow">
+                    Beta
+                  </span>
+                </Link>
+              ) : (
+                <span
+                  className="relative cursor-not-allowed rounded-full border border-white/30 bg-white/5 px-7 py-3 text-sm font-bold uppercase tracking-wide text-white/60"
+                  title="Digital Play is currently in private beta"
+                >
+                  Digital Play
+                  <span className="absolute -right-2 -top-2 rounded-full bg-fuchsia-500/70 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white shadow">
+                    Beta
+                  </span>
+                </span>
+              )}
+              <span className="text-xs font-medium text-sky-100">
+                {isAdmin ? "Play NS TCG Online" : "Private Beta"}
               </span>
             </div>
           </div>

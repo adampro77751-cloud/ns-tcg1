@@ -37,6 +37,15 @@ export default async function AdminPage() {
         </li>
         <li>
           <Link
+            href="/play/digital"
+            className="flex items-center justify-between rounded border border-sky-200 bg-white px-4 py-3 hover:border-slate-400"
+          >
+            <span className="font-medium">Digital Play Beta</span>
+            <span className="text-sm text-slate-500">Admin-only online play</span>
+          </Link>
+        </li>
+        <li>
+          <Link
             href="/store/orders"
             className="flex items-center justify-between rounded border border-sky-200 bg-white px-4 py-3 hover:border-slate-400"
           >
