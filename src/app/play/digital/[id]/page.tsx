@@ -154,7 +154,7 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
   const engineCardsById = new Map(
     Array.from(cardsById.entries()).map(([id, c]) => [
       id,
-      { id: c.id, type: c.type, attack: c.attack, defence: c.defence, speed: c.speed },
+      { id: c.id, slug: c.slug, type: c.type, attack: c.attack, defence: c.defence, speed: c.speed },
     ]),
   );
   const legalActions = getLegalActions(state, playerIndex, engineCardsById);

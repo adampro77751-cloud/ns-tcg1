@@ -80,7 +80,7 @@ export async function getCardsByIdMap(cardIds: Iterable<string>): Promise<Map<st
   if (idList.length === 0) return new Map();
   const cards = await prisma.card.findMany({
     where: { id: { in: idList } },
-    select: { id: true, type: true, attack: true, defence: true, speed: true },
+    select: { id: true, slug: true, type: true, attack: true, defence: true, speed: true },
   });
   return new Map(cards.map((c) => [c.id, c]));
 }
@@ -93,6 +93,7 @@ export async function getCardDisplayMap(cardIds: Iterable<string>) {
     where: { id: { in: idList } },
     select: {
       id: true,
+      slug: true,
       name: true,
       type: true,
       rarity: true,

@@ -13,11 +13,11 @@ import {
 } from "./engine";
 import { simpleRulesBot, runBotTurn } from "./bot";
 import { IllegalActionError } from "./types";
-import type { EngineCard } from "./types";
+import type { DigitalGameState, EngineCard } from "./types";
 
-const ITEM_STRONG: EngineCard = { id: "item-strong", type: "Item", attack: 50, defence: 10, speed: 20 };
-const ITEM_WEAK: EngineCard = { id: "item-weak", type: "Item", attack: 10, defence: 40, speed: 5 };
-const SPELL_A: EngineCard = { id: "spell-a", type: "Spell", attack: null, defence: null, speed: null };
+const ITEM_STRONG: EngineCard = { id: "item-strong", slug: "item-strong", type: "Item", attack: 50, defence: 10, speed: 20 };
+const ITEM_WEAK: EngineCard = { id: "item-weak", slug: "item-weak", type: "Item", attack: 10, defence: 40, speed: 5 };
+const SPELL_A: EngineCard = { id: "spell-a", slug: "spell-a", type: "Spell", attack: null, defence: null, speed: null };
 
 const cardsById = new Map<string, EngineCard>([
   [ITEM_STRONG.id, ITEM_STRONG],
@@ -155,7 +155,7 @@ describe("combat / health", () => {
 
   it("a faster defender mitigates damage by its Defence", () => {
     // Attacker speed 20 (ITEM_STRONG), defender speed 5... make defender faster instead.
-    const fastDefender: EngineCard = { id: "fast-def", type: "Item", attack: 5, defence: 15, speed: 99 };
+    const fastDefender: EngineCard = { id: "fast-def", slug: "fast-def", type: "Item", attack: 5, defence: 15, speed: 99 };
     const localCards = new Map(cardsById);
     localCards.set(fastDefender.id, fastDefender);
 
@@ -280,5 +280,230 @@ describe("bot", () => {
     const beforeEnd = result.log.slice(0, turnEndIdx === -1 ? result.log.length : turnEndIdx);
     const itemPlays = beforeEnd.filter((l) => l.includes("played Item"));
     expect(itemPlays.length).toBeLessThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real card abilities wired through CARD_ABILITIES (abilities.ts) — a
+// representative sample, not exhaustive, covering each shape of effect the
+// engine executes: a simple ON_PLAY draw, a targeted removal effect, the
+// Detention global draw-block, Biologist's item-limit increase, Brooke's
+// board-wide buff, and the Mountain Mist + Cutlary combo that exercises the
+// MAX_TRIGGER_DEPTH recursion guard.
+// ---------------------------------------------------------------------------
+
+const CRICKET_BALL: EngineCard = { id: "cricket-ball-1", slug: "cricket-ball", type: "Item", attack: 10, defence: 10, speed: 10 };
+const COKE: EngineCard = { id: "coke-1", slug: "coke", type: "Item", attack: 0, defence: 0, speed: 0 };
+const DETENTION: EngineCard = { id: "detention-1", slug: "detention", type: "Item", attack: 0, defence: 0, speed: 0 };
+const BIOLOGIST: EngineCard = { id: "biologist-1", slug: "biologist", type: "Item", attack: 0, defence: 0, speed: 0 };
+const BROOKE: EngineCard = { id: "brooke-1", slug: "brooke", type: "Spell", attack: null, defence: null, speed: null };
+const MOUNTAIN_MIST: EngineCard = { id: "mountain-mist-1", slug: "mountain-mist", type: "Item", attack: 0, defence: 0, speed: 0 };
+const CUTLARY: EngineCard = { id: "cutlary-1", slug: "cutlary", type: "Item", attack: 0, defence: 0, speed: 0 };
+
+// Test-only helpers to set up a specific board/hand shape directly, rather
+// than fighting the (seeded but still order-sensitive) shuffle — these
+// bypass triggers on purpose so each test isolates the one ability under
+// test.
+function forceToHand(state: DigitalGameState, playerIndex: 0 | 1, cardId: string): DigitalGameState {
+  const player = state.players[playerIndex];
+  const idx = player.deck.findIndex((c) => c.cardId === cardId);
+  if (idx === -1) return state;
+  const instance = player.deck[idx];
+  const newDeck = [...player.deck.slice(0, idx), ...player.deck.slice(idx + 1)];
+  const players = [...state.players] as [typeof player, typeof player];
+  players[playerIndex] = { ...player, deck: newDeck, hand: [...player.hand, instance] };
+  return { ...state, players };
+}
+
+function putOnBattlefield(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  cardId: string,
+  instanceId: string,
+): DigitalGameState {
+  const player = state.players[playerIndex];
+  const instance = { instanceId, cardId, tired: false, buffs: { attack: 0, defence: 0, speed: 0 } };
+  const players = [...state.players] as [typeof player, typeof player];
+  players[playerIndex] = { ...player, battlefield: [...player.battlefield, instance] };
+  return { ...state, players };
+}
+
+describe("card abilities — real cards", () => {
+  it("Cricket Ball draws a card when played (ON_PLAY DRAW effect)", () => {
+    const cards = new Map<string, EngineCard>([
+      [CRICKET_BALL.id, CRICKET_BALL],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "cb",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [CRICKET_BALL.id, ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = forceToHand(state, 0, CRICKET_BALL.id);
+    const handBefore = state.players[0].hand.length;
+    const deckBefore = state.players[0].deck.length;
+    const cb = state.players[0].hand.find((c) => c.cardId === CRICKET_BALL.id)!;
+    state = playItem(state, 0, cb.instanceId, cards);
+    // Cricket Ball leaves the hand (-1) but its own ability draws a
+    // replacement (+1) — net hand size unchanged, deck down by 1.
+    expect(state.players[0].hand).toHaveLength(handBefore);
+    expect(state.players[0].deck).toHaveLength(deckBefore - 1);
+  });
+
+  it("Coke moves the opponent's strongest Item to their discard pile (auto-targeted removal)", () => {
+    const cards = new Map<string, EngineCard>([
+      [COKE.id, COKE],
+      [ITEM_STRONG.id, ITEM_STRONG],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "coke",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [COKE.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "w-inst");
+    state = putOnBattlefield(state, 1, ITEM_STRONG.id, "s-inst");
+    state = forceToHand(state, 0, COKE.id);
+    const coke = state.players[0].hand.find((c) => c.cardId === COKE.id)!;
+    state = playItem(state, 0, coke.instanceId, cards);
+
+    expect(state.players[1].battlefield.map((c) => c.instanceId)).not.toContain("s-inst");
+    expect(state.players[1].discard.map((c) => c.instanceId)).toContain("s-inst");
+    expect(state.players[1].battlefield.map((c) => c.instanceId)).toContain("w-inst");
+  });
+
+  it("Detention (\"Players can't draw cards\") blocks draws for both players while in play", () => {
+    const cards = new Map<string, EngineCard>([
+      [DETENTION.id, DETENTION],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "det",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id, ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, DETENTION.id, "det-inst");
+
+    const p1DeckBefore = state.players[1].deck.length;
+    const p1HandBefore = state.players[1].hand.length;
+    state = endTurn(state, cards); // ends player 0's turn -> player 1's draw should be blocked
+    expect(state.players[1].deck).toHaveLength(p1DeckBefore);
+    expect(state.players[1].hand).toHaveLength(p1HandBefore);
+
+    const p0DeckBefore = state.players[0].deck.length;
+    const p0HandBefore = state.players[0].hand.length;
+    state = endTurn(state, cards); // ends player 1's turn -> player 0's draw should also be blocked
+    expect(state.players[0].deck).toHaveLength(p0DeckBefore);
+    expect(state.players[0].hand).toHaveLength(p0HandBefore);
+  });
+
+  it("Biologist raises the per-turn Item limit from 1 to 2", () => {
+    const cards = new Map<string, EngineCard>([
+      [BIOLOGIST.id, BIOLOGIST],
+      [ITEM_STRONG.id, ITEM_STRONG],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "bio",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 3,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_STRONG.id, ITEM_WEAK.id, ITEM_STRONG.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, BIOLOGIST.id, "bio-inst");
+    const items = state.players[0].hand.filter((c) => c.cardId === ITEM_STRONG.id || c.cardId === ITEM_WEAK.id);
+    expect(items).toHaveLength(3);
+
+    state = playItem(state, 0, items[0].instanceId, cards);
+    state = playItem(state, 0, items[1].instanceId, cards); // 2nd Item — legal thanks to Biologist
+    expect(() => playItem(state, 0, items[2].instanceId, cards)).toThrow(IllegalActionError);
+  });
+
+  it("Brooke buffs every Item on either battlefield by +100/+100/+100", () => {
+    const cards = new Map<string, EngineCard>([
+      [BROOKE.id, BROOKE],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "brooke",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 2,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [BROOKE.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, ITEM_WEAK.id, "w0");
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "w1");
+    const brooke = state.players[0].hand.find((c) => c.cardId === BROOKE.id)!;
+    state = playSpell(state, 0, brooke.instanceId, cards);
+
+    const w0 = state.players[0].battlefield.find((c) => c.instanceId === "w0")!;
+    const w1 = state.players[1].battlefield.find((c) => c.instanceId === "w1")!;
+    expect(w0.buffs).toEqual({ attack: 100, defence: 100, speed: 100 });
+    expect(w1.buffs).toEqual({ attack: 100, defence: 100, speed: 100 });
+  });
+
+  it("Mountain Mist + Cutlary combo terminates via MAX_TRIGGER_DEPTH instead of recursing forever", () => {
+    const cards = new Map<string, EngineCard>([
+      [MOUNTAIN_MIST.id, MOUNTAIN_MIST],
+      [CUTLARY.id, CUTLARY],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "combo",
+      formatId: "f1",
+      startingHealth: 10000,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: new Array(30).fill(ITEM_WEAK.id) },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, MOUNTAIN_MIST.id, "mm");
+    state = putOnBattlefield(state, 0, CUTLARY.id, "cut");
+
+    // "Whenever you draw, deal 30 to the opponent" (Mountain Mist) plus
+    // "whenever you deal 30+, draw a card" (Cutlary), both controlled by
+    // player 0, can in principle chain forever off each other. Driving two
+    // real end-of-turn draws (the second one lands on player 0, kicking off
+    // the chain) must still terminate promptly rather than hang.
+    state = endTurn(state, cards); // -> player 1's turn, draws (no combo pieces there)
+    state = endTurn(state, cards); // -> player 0's turn, draws -> combo fires, capped by depth
+
+    expect(state.players[1].health).toBeLessThan(10000);
+    expect(state.players[1].health).toBeGreaterThan(9000); // bounded damage, not unbounded
+    expect(state.players[0].deck.length).toBeGreaterThanOrEqual(0);
   });
 });

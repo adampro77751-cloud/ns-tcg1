@@ -113,11 +113,19 @@ export async function createBotMatchAction(
           }),
         ]);
 
+        const allCardIds = [...expandSnapshotToCardIds(humanSnap), ...expandSnapshotToCardIds(botSnap)];
+        const cardsForSetup = await tx.card.findMany({
+          where: { id: { in: Array.from(new Set(allCardIds)) } },
+          select: { id: true, slug: true, type: true, attack: true, defence: true, speed: true },
+        });
+        const cardsByIdForSetup = new Map(cardsForSetup.map((c) => [c.id, c]));
+
         const state = createGameState({
           matchId: match.id,
           formatId,
           startingHealth: format.startingHealth,
           startingHand: format.startingHand,
+          cardsById: cardsByIdForSetup,
           players: [
             {
               userId: session.user.id,
@@ -288,11 +296,22 @@ async function maybeStartMatch(matchId: string) {
     if (!match || match.status !== "READY") return;
     if (match.players.length !== 2 || !match.players.every((p) => p.ready)) return;
 
+    const allCardIds = [
+      ...expandSnapshotToCardIds(match.players[0].deckSnapshot),
+      ...expandSnapshotToCardIds(match.players[1].deckSnapshot),
+    ];
+    const cardsForSetup = await tx.card.findMany({
+      where: { id: { in: Array.from(new Set(allCardIds)) } },
+      select: { id: true, slug: true, type: true, attack: true, defence: true, speed: true },
+    });
+    const cardsByIdForSetup = new Map(cardsForSetup.map((c) => [c.id, c]));
+
     const state = createGameState({
       matchId: match.id,
       formatId: match.formatId,
       startingHealth: match.format.startingHealth,
       startingHand: match.format.startingHand,
+      cardsById: cardsByIdForSetup,
       players: [
         {
           userId: match.players[0].userId,
@@ -456,7 +475,7 @@ export async function attackDigitalAction(formData: FormData) {
 
 export async function endDigitalTurnAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
-  await runGameAction(matchId, (m) => engEndTurn(m.state));
+  await runGameAction(matchId, (m, cardsById) => engEndTurn(m.state, cardsById));
 }
 
 export async function concedeDigitalMatchAction(formData: FormData) {

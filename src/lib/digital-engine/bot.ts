@@ -63,7 +63,7 @@ export function runBotTurn(
     const action = provider.chooseAction(state, playerIndex, legalActions, cardsById);
 
     if (action.type === "END_TURN") {
-      return endTurn(state);
+      return endTurn(state, cardsById);
     }
     if (action.type === "PLAY_ITEM") {
       state = playItem(state, playerIndex, action.instanceId, cardsById);
@@ -75,5 +75,5 @@ export function runBotTurn(
   }
 
   // Safety net — force the turn to end rather than looping forever.
-  return state.phase === "COMPLETE" ? state : endTurn(state);
+  return state.phase === "COMPLETE" ? state : endTurn(state, cardsById);
 }
