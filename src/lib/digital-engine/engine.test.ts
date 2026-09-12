@@ -11,6 +11,7 @@ import {
   getVisibleState,
   shuffle,
   activateTimeBomb,
+  activateStarDrop,
 } from "./engine";
 import { simpleRulesBot, runBotTurn } from "./bot";
 import { IllegalActionError } from "./types";
@@ -743,5 +744,132 @@ describe("card abilities — second pass (discard interaction, reveal, counters)
     const result = activateTimeBomb(state, 0, "tb-3", cards);
     expect(result.phase).toBe("COMPLETE");
     expect(result.winnerIndex).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Commander/Champion entry — a PROVISIONAL, non-canonical decision (see
+// types.ts) letting these cards be played from hand via the normal Item
+// action, since neither this codebase nor the real rules define how they
+// actually enter play.
+// ---------------------------------------------------------------------------
+
+const CATHEDRAL_PERGRINES: EngineCard = { id: "cathedral-pergrines-1", slug: "cathedral-pergrines", type: "Commander", attack: 40, defence: 40, speed: 40 };
+const STAR_DROP: EngineCard = { id: "star-drop-1", slug: "star-drop", type: "Commander", attack: 30, defence: 30, speed: 30 };
+const THE_CURRICULUM: EngineCard = { id: "the-curriculum-1", slug: "the-curriculum", type: "Champion", attack: 60, defence: 60, speed: 60 };
+
+describe("Commander/Champion cards (provisional entry)", () => {
+  it("a Commander-type card can be played via playItem", () => {
+    const cards = new Map<string, EngineCard>([[CATHEDRAL_PERGRINES.id, CATHEDRAL_PERGRINES]]);
+    let state = createGameState({
+      matchId: "commander-entry",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [CATHEDRAL_PERGRINES.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const inHand = state.players[0].hand.find((c) => c.cardId === CATHEDRAL_PERGRINES.id)!;
+    state = playItem(state, 0, inHand.instanceId, cards);
+    expect(state.players[0].battlefield.map((c) => c.instanceId)).toContain(inHand.instanceId);
+  });
+
+  it("a Champion-type card cannot be played as a Spell (still shares the Item slot, not Spell)", () => {
+    const cards = new Map<string, EngineCard>([[THE_CURRICULUM.id, THE_CURRICULUM]]);
+    let state = createGameState({
+      matchId: "champion-not-spell",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [THE_CURRICULUM.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const inHand = state.players[0].hand.find((c) => c.cardId === THE_CURRICULUM.id)!;
+    expect(() => playSpell(state, 0, inHand.instanceId, cards)).toThrow(IllegalActionError);
+  });
+
+  it("Cathedral Pergrines discards a card and searches an Item onto the battlefield when it attacks", () => {
+    const cards = new Map<string, EngineCard>([
+      [CATHEDRAL_PERGRINES.id, CATHEDRAL_PERGRINES],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "dive-bomb",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, CATHEDRAL_PERGRINES.id, "cp-1");
+    // One Item left in deck for the search to find.
+    const handBefore = state.players[0].hand.length;
+    const battlefieldBefore = state.players[0].battlefield.length;
+    state = declareAttack(state, 0, "cp-1", cards);
+
+    expect(state.players[0].hand).toHaveLength(handBefore - 1); // discarded a card
+    expect(state.players[0].battlefield.length).toBe(battlefieldBefore + 1); // searched Item entered play
+  });
+
+  it("The Curriculum locks Items for the rest of the match, for both players", () => {
+    const cards = new Map<string, EngineCard>([[THE_CURRICULUM.id, THE_CURRICULUM], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "curriculum",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [THE_CURRICULUM.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const curriculum = state.players[0].hand.find((c) => c.cardId === THE_CURRICULUM.id)!;
+    state = playItem(state, 0, curriculum.instanceId, cards);
+    expect(state.itemsLockedForRestOfGame).toBe(true);
+
+    expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_ITEM")).toBe(false);
+
+    state = endTurn(state, cards);
+    const opponentItem = state.players[1].hand.find((c) => c.cardId === ITEM_WEAK.id)!;
+    expect(() => playItem(state, 1, opponentItem.instanceId, cards)).toThrow(IllegalActionError);
+  });
+
+  it("activateStarDrop discards a random card and draws, capped at twice per turn", () => {
+    const cards = new Map<string, EngineCard>([[STAR_DROP.id, STAR_DROP], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "star-drop",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 3,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id, ITEM_WEAK.id, ITEM_WEAK.id, ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, STAR_DROP.id, "sd-1");
+
+    state = activateStarDrop(state, 0, "sd-1", cards, () => 0);
+    state = activateStarDrop(state, 0, "sd-1", cards, () => 0);
+    expect(() => activateStarDrop(state, 0, "sd-1", cards, () => 0)).toThrow(IllegalActionError);
+
+    state = endTurn(state, cards); // resets activationsThisTurn for player 0
+    state = endTurn(state, cards); // back to player 0's turn
+    expect(() => activateStarDrop(state, 0, "sd-1", cards, () => 0)).not.toThrow();
   });
 });

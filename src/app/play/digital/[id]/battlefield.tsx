@@ -8,6 +8,7 @@ import {
   endDigitalTurnAction,
   concedeDigitalMatchAction,
   activateTimeBombAction,
+  activateStarDropAction,
 } from "@/lib/actions/digital-match-actions";
 import type { VisibleGameState } from "@/lib/digital-engine/engine";
 import type { LegalAction } from "@/lib/digital-engine/engine";
@@ -114,6 +115,9 @@ export function Battlefield({
   const activatableInstanceIds = new Set(
     legalActions.filter((a) => a.type === "ACTIVATE_TIME_BOMB").map((a) => a.instanceId),
   );
+  const starDropInstanceIds = new Set(
+    legalActions.filter((a) => a.type === "ACTIVATE_STAR_DROP").map((a) => a.instanceId),
+  );
   const canEndTurn = legalActions.some((a) => a.type === "END_TURN");
 
   return (
@@ -217,6 +221,18 @@ export function Battlefield({
                       className="rounded bg-amber-600 px-3 py-1 text-xs font-bold text-white hover:bg-amber-700"
                     >
                       Detonate (win)
+                    </button>
+                  </form>
+                )}
+                {starDropInstanceIds.has(c.instanceId) && (
+                  <form action={activateStarDropAction}>
+                    <input type="hidden" name="matchId" value={matchId} />
+                    <input type="hidden" name="instanceId" value={c.instanceId} />
+                    <button
+                      type="submit"
+                      className="rounded bg-teal-600 px-3 py-1 text-xs font-bold text-white hover:bg-teal-700"
+                    >
+                      Discard: Draw
                     </button>
                   </form>
                 )}

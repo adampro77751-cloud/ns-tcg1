@@ -3,13 +3,19 @@
 // zero dependency on Prisma/Next.js so the engine (engine.ts) is fully
 // unit-testable in isolation, same principle as src/lib/metagame-logic.ts.
 //
-// IMPORTANT — what this does NOT model yet (see the report for the current
-// pass, not invented here): Delay, Window, Commander/Champion cards
-// entering play (the schema/rules never define how — see report), and
-// player CHOICE between multiple options or targets (auto-resolved with a
+// IMPORTANT — what this does NOT model yet: Delay, Window, and player
+// CHOICE between multiple options or targets (auto-resolved with a
 // documented heuristic instead of a real target-picker UI). Star Drop's
 // second ability text is incomplete/malformed in the source data and is
 // skipped for that reason.
+//
+// Commander/Champion cards (Cathedral Pergrines, Star Drop, The
+// Curriculum) have NO rules-defined way to enter play — neither this
+// codebase's physical Rules page nor the real card text say how. Per
+// explicit user direction this is handled as a PROVISIONAL, non-canonical
+// engineering choice for Digital Play only: they're played from hand via
+// the normal Item action, sharing its per-turn slot/limit. This is very
+// likely wrong once real Commander rules exist and should be revisited.
 
 export type Zone = "DECK" | "HAND" | "BATTLEFIELD" | "DISCARD";
 
@@ -33,6 +39,10 @@ export type CardInstance = {
   /** Time Bomb only: charge counters accumulated via its own ability.
    *  Undefined/0 for every other card. */
   charges?: number;
+  /** Star Drop only: how many times THIS instance's own activated ability
+   *  has been used this turn (capped at 2). Reset at endTurn. Undefined/0
+   *  for every other card. */
+  activationsThisTurn?: number;
 };
 
 export type PlayerGameState = {
@@ -77,6 +87,12 @@ export type DigitalGameState = {
   /** Human-readable event log, most recent last. Public — no hidden info. */
   log: string[];
   winnerIndex: 0 | 1 | null;
+  /** The Curriculum: once true, Items (or Spells) can never be played
+   *  again by EITHER player for the rest of the match — a literal reading
+   *  of the card's unscoped "no more X can be played" text (no "you"
+   *  qualifier in the real rulesText). */
+  itemsLockedForRestOfGame: boolean;
+  spellsLockedForRestOfGame: boolean;
 };
 
 // Card data the engine needs but does not itself store (kept in the DB,

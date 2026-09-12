@@ -21,6 +21,7 @@ import {
   endTurn as engEndTurn,
   concede as engConcede,
   activateTimeBomb as engActivateTimeBomb,
+  activateStarDrop as engActivateStarDrop,
 } from "@/lib/digital-engine/engine";
 import { runBotTurn } from "@/lib/digital-engine/bot";
 import type { DigitalGameState } from "@/lib/digital-engine/types";
@@ -489,5 +490,13 @@ export async function activateTimeBombAction(formData: FormData) {
   const instanceId = String(formData.get("instanceId") ?? "");
   await runGameAction(matchId, (m, cardsById) =>
     engActivateTimeBomb(m.state, m.playerIndex, instanceId, cardsById),
+  );
+}
+
+export async function activateStarDropAction(formData: FormData) {
+  const matchId = String(formData.get("matchId") ?? "");
+  const instanceId = String(formData.get("instanceId") ?? "");
+  await runGameAction(matchId, (m, cardsById) =>
+    engActivateStarDrop(m.state, m.playerIndex, instanceId, cardsById),
   );
 }

@@ -50,6 +50,13 @@ function opponentIndex(playerIndex: 0 | 1): 0 | 1 {
   return playerIndex === 0 ? 1 : 0;
 }
 
+// PROVISIONAL — see types.ts's top-of-file comment. Commander/Champion
+// cards have no rules-defined entry method, so they're allowed into play
+// via the normal Item action/slot as a non-canonical engineering choice.
+function isPlayableAsItem(type: string | null): boolean {
+  return type === "Item" || type === "Commander" || type === "Champion";
+}
+
 function requireCard(cardsById: Map<string, EngineCard>, cardId: string): EngineCard {
   const card = cardsById.get(cardId);
   if (!card) throw new IllegalActionError("Unknown card.");
@@ -203,6 +210,8 @@ export function createGameState(params: {
     ],
     log: ["Match started."],
     winnerIndex: null,
+    itemsLockedForRestOfGame: false,
+    spellsLockedForRestOfGame: false,
   };
 
   // "End Of Year Test: If this is in your hand at the beginning of the
@@ -484,6 +493,25 @@ function applyEffect(
       if (!found) return { state, resolvedTarget: null };
       const rest = shuffle(removeFromZone(deck, found.instanceId), ctx.random);
       state = updatePlayer(state, controllerIndex, (p) => ({ ...p, deck: rest, hand: [...p.hand, found] }));
+      return { state, resolvedTarget: null };
+    }
+
+    // Cathedral Pergrines: same search as SEARCH_DECK, but the found Item
+    // goes straight onto the battlefield ("put it onto the battlefield"),
+    // not into hand.
+    case "SEARCH_DECK_TO_PLAY": {
+      const deck = state.players[controllerIndex].deck;
+      const found = deck.find((c) => cardsById.get(c.cardId)?.type === "Item");
+      if (!found) return { state, resolvedTarget: null };
+      const rest = shuffle(removeFromZone(deck, found.instanceId), ctx.random);
+      state = updatePlayer(state, controllerIndex, (p) => ({ ...p, deck: rest }));
+      state = enterBattlefield(state, controllerIndex, found, cardsById, depth);
+      return { state, resolvedTarget: found.instanceId };
+    }
+
+    // The Curriculum.
+    case "LOCK_CARD_TYPE": {
+      state = effect.choice === "SPELL" ? { ...state, spellsLockedForRestOfGame: true } : { ...state, itemsLockedForRestOfGame: true };
       return { state, resolvedTarget: null };
     }
 
@@ -806,8 +834,19 @@ function playCard(
   if (!inHand) throw new IllegalActionError("That card isn't in your hand.");
 
   const card = requireCard(cardsById, inHand.cardId);
-  if (card.type !== expectedType) {
+  const typeMatches = expectedType === "Item" ? isPlayableAsItem(card.type) : card.type === expectedType;
+  if (!typeMatches) {
     throw new IllegalActionError(`That card isn't a ${expectedType}.`);
+  }
+
+  // The Curriculum: a lock is scoped to the card's real type NAME (not the
+  // provisional "playable as Item" grouping), so a Commander/Champion card
+  // is unaffected by an Item lock unless it is literally type "Item".
+  if (card.type === "Item" && state.itemsLockedForRestOfGame) {
+    throw new IllegalActionError("Items can no longer be played this game (The Curriculum).");
+  }
+  if (card.type === "Spell" && state.spellsLockedForRestOfGame) {
+    throw new IllegalActionError("Spells can no longer be played this game (The Curriculum).");
   }
 
   const hasBiologist = player.battlefield.some((c) => cardsById.get(c.cardId)?.slug === "biologist");
@@ -973,6 +1012,7 @@ export function endTurn(
     unlimitedSpellsThisTurn: false,
     damagePreventedThisTurn: false,
     spellsPlayableFromDiscardThisTurn: false,
+    battlefield: p.battlefield.map((c) => ({ ...c, activationsThisTurn: 0 })),
   }));
 
   state = updatePlayer(state, nextIndex, (p) => ({
@@ -1027,6 +1067,45 @@ export function activateTimeBomb(
   };
 }
 
+// "Star Drop: Discard a card: Draw a card. Activate this ability only
+// twice each turn." A player-CHOSEN activated ability with no trigger half
+// at all — see the comment in abilities.ts. "Discard a card" has no
+// picker UI yet, so it's auto-resolved to a random card from hand, the
+// same policy as every other undirected discard effect in this engine.
+export function activateStarDrop(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  instanceId: string,
+  cardsById: Map<string, EngineCard>,
+  random: () => number = Math.random,
+): DigitalGameState {
+  requireInProgress(state);
+  requireTurn(state, playerIndex);
+
+  const instance = findCardInstance(state.players[playerIndex].battlefield, instanceId);
+  if (!instance) throw new IllegalActionError("That card isn't on your battlefield.");
+  const card = requireCard(cardsById, instance.cardId);
+  if (card.slug !== "star-drop") throw new IllegalActionError("That card has no activatable ability.");
+  if ((instance.activationsThisTurn ?? 0) >= 2) {
+    throw new IllegalActionError("Star Drop's ability can only be activated twice each turn.");
+  }
+  const hand = state.players[playerIndex].hand;
+  if (hand.length === 0) throw new IllegalActionError("You have no cards to discard.");
+
+  const discarded = hand[Math.floor(random() * hand.length)];
+  state = updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    hand: removeFromZone(p.hand, discarded.instanceId),
+    discard: [...p.discard, discarded],
+    battlefield: p.battlefield.map((c) =>
+      c.instanceId === instanceId ? { ...c, activationsThisTurn: (c.activationsThisTurn ?? 0) + 1 } : c,
+    ),
+  }));
+  state = afterMoveToDiscard(state, playerIndex, discarded, cardsById, 0);
+  state = drawWithTrigger(state, playerIndex, cardsById, 0);
+  return state;
+}
+
 // ---------------------------------------------------------------------------
 // Legal-action introspection
 // ---------------------------------------------------------------------------
@@ -1036,6 +1115,7 @@ export type LegalAction =
   | { type: "PLAY_SPELL"; instanceId: string }
   | { type: "ATTACK"; instanceId: string }
   | { type: "ACTIVATE_TIME_BOMB"; instanceId: string }
+  | { type: "ACTIVATE_STAR_DROP"; instanceId: string }
   | { type: "END_TURN" };
 
 export function getLegalActions(
@@ -1056,14 +1136,15 @@ export function getLegalActions(
 
   if (canPlayItem) {
     for (const c of player.hand) {
-      if (requireCard(cardsById, c.cardId).type === "Item") {
+      const cardType = requireCard(cardsById, c.cardId).type;
+      if (isPlayableAsItem(cardType) && !(cardType === "Item" && state.itemsLockedForRestOfGame)) {
         actions.push({ type: "PLAY_ITEM", instanceId: c.instanceId });
       }
     }
   }
   if (canPlaySpell) {
     for (const c of player.hand) {
-      if (requireCard(cardsById, c.cardId).type === "Spell") {
+      if (requireCard(cardsById, c.cardId).type === "Spell" && !state.spellsLockedForRestOfGame) {
         actions.push({ type: "PLAY_SPELL", instanceId: c.instanceId });
       }
     }
@@ -1071,7 +1152,7 @@ export function getLegalActions(
   // Art's discard-cast allowance is exempt from the normal per-turn Spell
   // limit entirely (see playCard's `fromDiscard` branch), so it's listed
   // regardless of canPlaySpell.
-  if (player.spellsPlayableFromDiscardThisTurn) {
+  if (player.spellsPlayableFromDiscardThisTurn && !state.spellsLockedForRestOfGame) {
     for (const c of player.discard) {
       if (cardsById.get(c.cardId)?.type === "Spell") {
         actions.push({ type: "PLAY_SPELL", instanceId: c.instanceId });
@@ -1082,6 +1163,13 @@ export function getLegalActions(
     if (!c.tired) actions.push({ type: "ATTACK", instanceId: c.instanceId });
     if (cardsById.get(c.cardId)?.slug === "time-bomb" && (c.charges ?? 0) >= 10) {
       actions.push({ type: "ACTIVATE_TIME_BOMB", instanceId: c.instanceId });
+    }
+    if (
+      cardsById.get(c.cardId)?.slug === "star-drop" &&
+      (c.activationsThisTurn ?? 0) < 2 &&
+      player.hand.length > 0
+    ) {
+      actions.push({ type: "ACTIVATE_STAR_DROP", instanceId: c.instanceId });
     }
   }
   actions.push({ type: "END_TURN" });
@@ -1135,6 +1223,8 @@ export function getVisibleState(state: DigitalGameState, viewerIndex: 0 | 1): Vi
     phase: state.phase,
     log: state.log,
     winnerIndex: state.winnerIndex,
+    itemsLockedForRestOfGame: state.itemsLockedForRestOfGame,
+    spellsLockedForRestOfGame: state.spellsLockedForRestOfGame,
     viewerIndex,
     players: [redact(state.players[0], viewerIndex === 0), redact(state.players[1], viewerIndex === 1)],
   };

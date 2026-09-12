@@ -32,7 +32,9 @@ export type EffectType =
   | "CAST_FROM_DISCARD"
   | "MUTUAL_DISCARD_ITEM"
   | "REVEAL_HAND"
-  | "ADD_CHARGE";
+  | "ADD_CHARGE"
+  | "SEARCH_DECK_TO_PLAY"
+  | "LOCK_CARD_TYPE";
 
 export type GameEvent =
   | "CARD_PLAYED"
@@ -67,6 +69,10 @@ export type EffectSpec = {
   type: EffectType;
   amount?: number;
   target?: EffectTarget;
+  /** Fixed, auto-resolved answer to a card's own "choose X or Y" text
+   *  (The Curriculum). Not a general choice system — just a documented,
+   *  hand-picked default for the one card that currently needs it. */
+  choice?: "ITEM" | "SPELL";
 };
 
 export type AbilitySpec = {
@@ -352,6 +358,44 @@ export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
   // (activateTimeBomb in engine.ts) rather than a CARD_ABILITIES entry —
   // same reasoning as Detention/Biologist's static effects.
   "time-bomb": [{ trigger: "SPELL_PLAYED", effects: [{ type: "ADD_CHARGE" }] }],
+
+  // ---- Commander/Champion cards — see types.ts's top-of-file comment for
+  // the provisional, non-canonical decision that lets them enter play at
+  // all (via the normal Item action) ----
+
+  // "Dive Bomb — At the beginning of the attack step, you may discard a
+  // card. If you do, search your deck for any Item and put it onto the
+  // battlefield under your control." — no separate "attack step" phase
+  // exists in this engine, so this is modeled as Cathedral Pergrines' own
+  // ATTACK_STARTED trigger (fires when IT attacks), the closest existing
+  // hook. The "may" choice auto-resolves to "yes" whenever there's a card
+  // in hand to discard, per the established choice-auto-resolution pattern.
+  "cathedral-pergrines": [
+    {
+      trigger: "ATTACK_STARTED",
+      effects: [
+        { type: "DISCARD", amount: 1, target: "SELF" },
+        { type: "SEARCH_DECK_TO_PLAY" },
+      ],
+    },
+  ],
+
+  // "Discard a card: Draw a card. Activate this ability only twice each
+  // turn." is a player-CHOSEN activated ability, not a trigger — see
+  // activateStarDrop in engine.ts. It is deliberately absent from this
+  // record entirely (unlike Time Bomb, which has a real trigger half).
+  // Star Drop's second ability ("Whenever you deal 10 damage to any
+  // target.") is incomplete/malformed in the source rulesText (no effect
+  // is stated) and is skipped for that reason.
+
+  // "When this enters play, choose Spells or Items. If Items is chosen, no
+  // more Items can be played for the rest of the game. If Spells is
+  // chosen, no more Spells can be played for the rest of the game." — no
+  // "you" qualifier in the real text, so this is modeled as a literal
+  // global lock affecting BOTH players for the rest of the match (see
+  // DigitalGameState.itemsLockedForRestOfGame). The choice auto-resolves
+  // to a fixed "Items" — there is no choice-picker UI yet.
+  "the-curriculum": [{ trigger: "ON_PLAY", effects: [{ type: "LOCK_CARD_TYPE", choice: "ITEM" }] }],
 };
 
 export function getCardAbilities(cardSlug: string): AbilitySpec[] {
