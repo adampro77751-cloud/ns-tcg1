@@ -10,6 +10,7 @@ import {
   getLegalActions,
   getVisibleState,
   shuffle,
+  activateTimeBomb,
 } from "./engine";
 import { simpleRulesBot, runBotTurn } from "./bot";
 import { IllegalActionError } from "./types";
@@ -320,11 +321,31 @@ function putOnBattlefield(
   playerIndex: 0 | 1,
   cardId: string,
   instanceId: string,
+  charges?: number,
+): DigitalGameState {
+  const player = state.players[playerIndex];
+  const instance = {
+    instanceId,
+    cardId,
+    tired: false,
+    buffs: { attack: 0, defence: 0, speed: 0 },
+    ...(charges !== undefined ? { charges } : {}),
+  };
+  const players = [...state.players] as [typeof player, typeof player];
+  players[playerIndex] = { ...player, battlefield: [...player.battlefield, instance] };
+  return { ...state, players };
+}
+
+function putInDiscard(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  cardId: string,
+  instanceId: string,
 ): DigitalGameState {
   const player = state.players[playerIndex];
   const instance = { instanceId, cardId, tired: false, buffs: { attack: 0, defence: 0, speed: 0 } };
   const players = [...state.players] as [typeof player, typeof player];
-  players[playerIndex] = { ...player, battlefield: [...player.battlefield, instance] };
+  players[playerIndex] = { ...player, discard: [...player.discard, instance] };
   return { ...state, players };
 }
 
@@ -505,5 +526,222 @@ describe("card abilities — real cards", () => {
     expect(state.players[1].health).toBeLessThan(10000);
     expect(state.players[1].health).toBeGreaterThan(9000); // bounded damage, not unbounded
     expect(state.players[0].deck.length).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A second batch of real cards, added in a follow-up pass: Art, Pi, Library
+// (discard-pile interaction), Running (mutual forced discard), School
+// Computers (hand reveal), and Time Bomb (charge counters + an activated
+// win condition).
+// ---------------------------------------------------------------------------
+
+const ART: EngineCard = { id: "art-1", slug: "art", type: "Spell", attack: null, defence: null, speed: null };
+const PI: EngineCard = { id: "pi-1", slug: "pi", type: "Spell", attack: null, defence: null, speed: null };
+const LIBRARY: EngineCard = { id: "library-1", slug: "library", type: "Item", attack: 10, defence: 10, speed: 10 };
+const RUNNING: EngineCard = { id: "running-1", slug: "running", type: "Spell", attack: null, defence: null, speed: null };
+const SCHOOL_COMPUTERS: EngineCard = { id: "school-computers-1", slug: "school-computers", type: "Item", attack: 20, defence: 20, speed: 20 };
+const TIME_BOMB: EngineCard = { id: "time-bomb-1", slug: "time-bomb", type: "Item", attack: 0, defence: 0, speed: 0 };
+// A Spell fixture reusing the "cricket-ball" ability (ON_PLAY: draw 1) to
+// verify Library's discard-recast actually re-fires the recast card's own
+// ability — the real Cricket Ball is an Item, but CARD_ABILITIES is keyed
+// purely by slug, so this is a valid, decoupled test fixture.
+const RECASTABLE_SPELL: EngineCard = { id: "recastable-1", slug: "cricket-ball", type: "Spell", attack: null, defence: null, speed: null };
+
+describe("card abilities — second pass (discard interaction, reveal, counters)", () => {
+  it("Art lets a Spell already in discard be played this turn", () => {
+    const cards = new Map<string, EngineCard>([[ART.id, ART], [SPELL_A.id, SPELL_A]]);
+    let state = createGameState({
+      matchId: "art",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 2,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ART.id, SPELL_A.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    // Simulate SPELL_A having already been discarded earlier this game.
+    const spellInHand = state.players[0].hand.find((c) => c.cardId === SPELL_A.id)!;
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], hand: state.players[0].hand.filter((c) => c.instanceId !== spellInHand.instanceId), discard: [spellInHand] },
+        state.players[1],
+      ],
+    };
+
+    const art = state.players[0].hand.find((c) => c.cardId === ART.id)!;
+    state = playSpell(state, 0, art.instanceId, cards);
+    expect(state.players[0].spellsPlayableFromDiscardThisTurn).toBe(true);
+
+    const legal = getLegalActions(state, 0, cards);
+    expect(legal.some((a) => a.type === "PLAY_SPELL" && a.instanceId === spellInHand.instanceId)).toBe(true);
+
+    expect(() => playSpell(state, 0, spellInHand.instanceId, cards)).not.toThrow();
+  });
+
+  it("Pi returns every Spell in discard to hand and grants extra Spell plays", () => {
+    const cards = new Map<string, EngineCard>([[PI.id, PI], [SPELL_A.id, SPELL_A]]);
+    let state = createGameState({
+      matchId: "pi",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [PI.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-a-disc-1");
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-a-disc-2");
+
+    const pi = state.players[0].hand.find((c) => c.cardId === PI.id)!;
+    const extraBefore = state.players[0].extraPlaysThisTurn;
+    state = playSpell(state, 0, pi.instanceId, cards);
+
+    expect(state.players[0].hand.map((c) => c.instanceId)).toEqual(
+      expect.arrayContaining(["spell-a-disc-1", "spell-a-disc-2"]),
+    );
+    expect(state.players[0].discard.map((c) => c.instanceId)).not.toContain("spell-a-disc-1");
+    expect(state.players[0].extraPlaysThisTurn).toBe(extraBefore + 99);
+  });
+
+  it("Library recasts the most recently discarded Spell (re-firing its own ON_PLAY) and deals 20 damage", () => {
+    const cards = new Map<string, EngineCard>([
+      [LIBRARY.id, LIBRARY],
+      [RECASTABLE_SPELL.id, RECASTABLE_SPELL],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "library",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [LIBRARY.id, ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = forceToHand(state, 0, LIBRARY.id);
+    state = putInDiscard(state, 0, RECASTABLE_SPELL.id, "recast-1");
+
+    const handBefore = state.players[0].hand.length;
+    const opponentHealthBefore = state.players[1].health;
+    const library = state.players[0].hand.find((c) => c.cardId === LIBRARY.id)!;
+    state = playItem(state, 0, library.instanceId, cards);
+
+    // Library itself leaves the hand (-1) but recasting Cricket Ball's own
+    // ON_PLAY draws a replacement (+1) — net unchanged.
+    expect(state.players[0].hand).toHaveLength(handBefore);
+    expect(state.players[1].health).toBe(opponentHealthBefore - 20);
+    expect(state.players[0].discard.map((c) => c.instanceId)).toContain("recast-1");
+  });
+
+  it("Running makes each player discard their own weakest Item", () => {
+    const cards = new Map<string, EngineCard>([
+      [RUNNING.id, RUNNING],
+      [ITEM_STRONG.id, ITEM_STRONG],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "running",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [RUNNING.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, ITEM_STRONG.id, "strong-0");
+    state = putOnBattlefield(state, 0, ITEM_WEAK.id, "weak-0");
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "weak-1");
+
+    const running = state.players[0].hand.find((c) => c.cardId === RUNNING.id)!;
+    state = playSpell(state, 0, running.instanceId, cards);
+
+    expect(state.players[0].battlefield.map((c) => c.instanceId)).toEqual(["strong-0"]);
+    expect(state.players[0].discard.map((c) => c.instanceId)).toContain("weak-0");
+    expect(state.players[1].battlefield).toHaveLength(0);
+    expect(state.players[1].discard.map((c) => c.instanceId)).toContain("weak-1");
+  });
+
+  it("School Computers reveals the opponent's hand when it attacks, cleared at end of turn", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL_COMPUTERS.id, SCHOOL_COMPUTERS], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "school-computers",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id, ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, SCHOOL_COMPUTERS.id, "sc-1");
+    state = declareAttack(state, 0, "sc-1", cards);
+
+    expect(state.players[1].handRevealedToOpponent).toBe(true);
+    const visibleToAttacker = getVisibleState(state, 0);
+    expect(visibleToAttacker.players[1].hand.every((c) => "cardId" in c)).toBe(true);
+
+    state = endTurn(state, cards);
+    expect(state.players[1].handRevealedToOpponent).toBe(false);
+  });
+
+  it("Time Bomb gains a charge whenever its controller casts a Spell", () => {
+    const cards = new Map<string, EngineCard>([[TIME_BOMB.id, TIME_BOMB], [SPELL_A.id, SPELL_A]]);
+    let state = createGameState({
+      matchId: "time-bomb-charge",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SPELL_A.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, TIME_BOMB.id, "tb-1");
+    const spell = state.players[0].hand.find((c) => c.cardId === SPELL_A.id)!;
+    state = playSpell(state, 0, spell.instanceId, cards);
+
+    const bomb = state.players[0].battlefield.find((c) => c.instanceId === "tb-1")!;
+    expect(bomb.charges).toBe(1);
+  });
+
+  it("activateTimeBomb wins the game once 10 charges are removed, and refuses otherwise", () => {
+    const cards = new Map<string, EngineCard>([[TIME_BOMB.id, TIME_BOMB], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "time-bomb-win",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, TIME_BOMB.id, "tb-2", 5);
+    expect(() => activateTimeBomb(state, 0, "tb-2", cards)).toThrow(IllegalActionError);
+
+    state = putOnBattlefield(state, 0, TIME_BOMB.id, "tb-3", 10);
+    const result = activateTimeBomb(state, 0, "tb-3", cards);
+    expect(result.phase).toBe("COMPLETE");
+    expect(result.winnerIndex).toBe(0);
   });
 });

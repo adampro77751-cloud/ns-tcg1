@@ -20,6 +20,7 @@ import {
   declareAttack as engDeclareAttack,
   endTurn as engEndTurn,
   concede as engConcede,
+  activateTimeBomb as engActivateTimeBomb,
 } from "@/lib/digital-engine/engine";
 import { runBotTurn } from "@/lib/digital-engine/bot";
 import type { DigitalGameState } from "@/lib/digital-engine/types";
@@ -481,4 +482,12 @@ export async function endDigitalTurnAction(formData: FormData) {
 export async function concedeDigitalMatchAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   await runGameAction(matchId, (m) => engConcede(m.state, m.playerIndex));
+}
+
+export async function activateTimeBombAction(formData: FormData) {
+  const matchId = String(formData.get("matchId") ?? "");
+  const instanceId = String(formData.get("instanceId") ?? "");
+  await runGameAction(matchId, (m, cardsById) =>
+    engActivateTimeBomb(m.state, m.playerIndex, instanceId, cardsById),
+  );
 }

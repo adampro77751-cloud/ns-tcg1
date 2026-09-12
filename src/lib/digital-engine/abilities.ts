@@ -26,7 +26,13 @@ export type EffectType =
   | "COPY"
   | "PREVENT_DAMAGE"
   | "EXTRA_ITEM_PLAY"
-  | "EXTRA_SPELL_PLAY";
+  | "EXTRA_SPELL_PLAY"
+  | "ALLOW_SPELLS_FROM_DISCARD"
+  | "RETURN_ALL_SPELLS_FROM_DISCARD"
+  | "CAST_FROM_DISCARD"
+  | "MUTUAL_DISCARD_ITEM"
+  | "REVEAL_HAND"
+  | "ADD_CHARGE";
 
 export type GameEvent =
   | "CARD_PLAYED"
@@ -290,6 +296,62 @@ export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
     { trigger: "ITEM_PLAYED", effects: [{ type: "DRAW", amount: 1, target: "SELF" }] },
     { trigger: "SPELL_PLAYED", effects: [{ type: "DRAW", amount: 2, target: "SELF" }] },
   ],
+
+  // ---- Discard-pile interaction ----
+  // "You may play Spells from your discard pile this turn."
+  art: [{ trigger: "ON_PLAY", effects: [{ type: "ALLOW_SPELLS_FROM_DISCARD" }] }],
+
+  // "Return all Spell cards from your discard pile to your hand. You may
+  // play them this turn." — the extra-plays pool (99, matching Revision's
+  // pattern) covers "you may play them this turn" without a real per-card
+  // spell-count limit.
+  pi: [
+    {
+      trigger: "ON_PLAY",
+      effects: [
+        { type: "RETURN_ALL_SPELLS_FROM_DISCARD" },
+        { type: "EXTRA_SPELL_PLAY", amount: 99 },
+      ],
+    },
+  ],
+
+  // "When this enters, you may play target Spell from your discard pile
+  // even if you've already played the maximum number of Spells this turn;
+  // then this deals 20 damage to any target." — auto-targets the most
+  // recently discarded Spell in your own discard pile. The re-cast Spell
+  // resolves its own ON_PLAY effects but does NOT dispatch a SPELL_PLAYED
+  // event (a documented simplification — a permanent watching for
+  // "whenever you cast a Spell", e.g. Time Bomb or Budge, won't see this
+  // one).
+  library: [
+    {
+      trigger: "ON_PLAY",
+      effects: [
+        { type: "CAST_FROM_DISCARD" },
+        { type: "DAMAGE", amount: 20, target: "OPPONENT" },
+      ],
+    },
+  ],
+
+  // "When this enters, each player must put an Item that they control into
+  // their discard pile." — each player's own choice in the real text;
+  // auto-resolved to each player's own WEAKEST Item by Attack (a rational
+  // player would keep their strongest), since there's no target-picker UI.
+  running: [{ trigger: "ON_PLAY", effects: [{ type: "MUTUAL_DISCARD_ITEM" }] }],
+
+  // "When this attacks, target player reveals their hand." — reveal lasts
+  // until end of the current turn; see PlayerGameState.handRevealedToOpponent.
+  "school-computers": [
+    { trigger: "ATTACK_STARTED", effects: [{ type: "REVEAL_HAND", target: "OPPONENT" }] },
+  ],
+
+  // "Whenever you cast a Spell, place a charge counter on this card. Remove
+  // 10 charge counters: Win the game." — the charge-gain is a normal
+  // trigger; the "remove 10: win" half is a player-CHOSEN activated
+  // ability, not a trigger, so it's implemented as its own action
+  // (activateTimeBomb in engine.ts) rather than a CARD_ABILITIES entry —
+  // same reasoning as Detention/Biologist's static effects.
+  "time-bomb": [{ trigger: "SPELL_PLAYED", effects: [{ type: "ADD_CHARGE" }] }],
 };
 
 export function getCardAbilities(cardSlug: string): AbilitySpec[] {

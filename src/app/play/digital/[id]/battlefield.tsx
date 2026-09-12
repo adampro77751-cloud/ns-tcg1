@@ -7,6 +7,7 @@ import {
   attackDigitalAction,
   endDigitalTurnAction,
   concedeDigitalMatchAction,
+  activateTimeBombAction,
 } from "@/lib/actions/digital-match-actions";
 import type { VisibleGameState } from "@/lib/digital-engine/engine";
 import type { LegalAction } from "@/lib/digital-engine/engine";
@@ -110,6 +111,9 @@ export function Battlefield({
   const attackableInstanceIds = new Set(
     legalActions.filter((a) => a.type === "ATTACK").map((a) => a.instanceId),
   );
+  const activatableInstanceIds = new Set(
+    legalActions.filter((a) => a.type === "ACTIVATE_TIME_BOMB").map((a) => a.instanceId),
+  );
   const canEndTurn = legalActions.some((a) => a.type === "END_TURN");
 
   return (
@@ -155,10 +159,19 @@ export function Battlefield({
               ❤ {opponent.health}
             </span>
           </div>
+          {opponent.handRevealedToOpponent && (
+            <p className="mt-2 text-xs font-semibold text-amber-700">
+              School Computers revealed this hand — visible until end of turn.
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
-            {opponent.hand.map((c) => (
-              <CardBack key={c.instanceId} />
-            ))}
+            {opponent.hand.map((c) =>
+              "hidden" in c ? (
+                <CardBack key={c.instanceId} />
+              ) : (
+                <CardFace key={c.instanceId} cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} />
+              ),
+            )}
             {opponent.hand.length === 0 && (
               <span className="text-xs text-slate-400">No cards in hand</span>
             )}
@@ -195,6 +208,18 @@ export function Battlefield({
                     </button>
                   </form>
                 )}
+                {activatableInstanceIds.has(c.instanceId) && (
+                  <form action={activateTimeBombAction}>
+                    <input type="hidden" name="matchId" value={matchId} />
+                    <input type="hidden" name="instanceId" value={c.instanceId} />
+                    <button
+                      type="submit"
+                      className="rounded bg-amber-600 px-3 py-1 text-xs font-bold text-white hover:bg-amber-700"
+                    >
+                      Detonate (win)
+                    </button>
+                  </form>
+                )}
               </div>
             ))}
             {you.battlefield.length === 0 && (
@@ -228,6 +253,29 @@ export function Battlefield({
             )}
             {you.hand.length === 0 && <span className="text-xs text-slate-400">Empty hand</span>}
           </div>
+
+          {you.discard.some((c) => playableInstanceIds.has(c.instanceId)) && (
+            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-violet-300 bg-violet-50/60 p-2">
+              <span className="w-full text-xs font-semibold text-violet-700">Playable from discard (Art):</span>
+              {you.discard
+                .filter((c) => playableInstanceIds.has(c.instanceId))
+                .map((c) => (
+                  <div key={c.instanceId} className="flex flex-col items-center gap-1.5">
+                    <CardFace cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} />
+                    <form action={playDigitalSpellAction}>
+                      <input type="hidden" name="matchId" value={matchId} />
+                      <input type="hidden" name="instanceId" value={c.instanceId} />
+                      <button
+                        type="submit"
+                        className="rounded bg-violet-600 px-3 py-1 text-xs font-bold text-white hover:bg-violet-700"
+                      >
+                        Play
+                      </button>
+                    </form>
+                  </div>
+                ))}
+            </div>
+          )}
 
           <div className="mt-5 flex items-center justify-between">
             <span className="text-lg font-bold">{youUsername} (you)</span>

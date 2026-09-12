@@ -172,6 +172,8 @@ function buildPlayerState(
     extraPlaysThisTurn: 0,
     unlimitedSpellsThisTurn: false,
     damagePreventedThisTurn: false,
+    spellsPlayableFromDiscardThisTurn: false,
+    handRevealedToOpponent: false,
   };
 }
 
@@ -562,6 +564,86 @@ function applyEffect(
       return { state, resolvedTarget: null };
     }
 
+    case "ALLOW_SPELLS_FROM_DISCARD": {
+      state = updatePlayer(state, controllerIndex, (p) => ({ ...p, spellsPlayableFromDiscardThisTurn: true }));
+      return { state, resolvedTarget: null };
+    }
+
+    case "REVEAL_HAND": {
+      const targetIndex = effect.target === "SELF" ? controllerIndex : opponentIdx;
+      state = updatePlayer(state, targetIndex, (p) => ({ ...p, handRevealedToOpponent: true }));
+      return { state, resolvedTarget: null };
+    }
+
+    case "RETURN_ALL_SPELLS_FROM_DISCARD": {
+      const discard = state.players[controllerIndex].discard;
+      const spells = discard.filter((c) => cardsById.get(c.cardId)?.type === "Spell");
+      if (spells.length === 0) return { state, resolvedTarget: null };
+      const spellIds = new Set(spells.map((c) => c.instanceId));
+      state = updatePlayer(state, controllerIndex, (p) => ({
+        ...p,
+        discard: p.discard.filter((c) => !spellIds.has(c.instanceId)),
+        hand: [...p.hand, ...spells],
+      }));
+      return { state, resolvedTarget: null };
+    }
+
+    // "Each player must put an Item they control into discard." Each
+    // player's own choice in the real text — auto-resolved to their own
+    // weakest Item by Attack (see abilities.ts comment on `running`).
+    case "MUTUAL_DISCARD_ITEM": {
+      for (const idx of [0, 1] as const) {
+        const items = state.players[idx].battlefield.filter((c) => cardsById.get(c.cardId)?.type === "Item");
+        if (items.length === 0) continue;
+        let weakest = items[0];
+        let weakestAttack = getEffectiveStat(weakest, cardsById.get(weakest.cardId)!, "attack");
+        for (const c of items.slice(1)) {
+          const atk = getEffectiveStat(c, cardsById.get(c.cardId)!, "attack");
+          if (atk < weakestAttack) {
+            weakest = c;
+            weakestAttack = atk;
+          }
+        }
+        state = updatePlayer(state, idx, (p) => ({
+          ...p,
+          battlefield: removeFromZone(p.battlefield, weakest.instanceId),
+          discard: [...p.discard, weakest],
+        }));
+        state = afterMoveToDiscard(state, idx, weakest, cardsById, depth);
+      }
+      return { state, resolvedTarget: null };
+    }
+
+    // Time Bomb's own trigger — adds a charge counter to itself.
+    case "ADD_CHARGE": {
+      if (!ctx.thisInstanceId) return { state, resolvedTarget: null };
+      state = updatePlayer(state, controllerIndex, (p) => ({
+        ...p,
+        battlefield: p.battlefield.map((c) =>
+          c.instanceId === ctx.thisInstanceId ? { ...c, charges: (c.charges ?? 0) + 1 } : c,
+        ),
+      }));
+      return { state, resolvedTarget: null };
+    }
+
+    // Library: casts the most-recently-discarded Spell from the
+    // controller's own discard, resolving its ON_PLAY effects, then puts it
+    // back in discard — a simplification documented in abilities.ts (no
+    // SPELL_PLAYED event fires for this recast).
+    case "CAST_FROM_DISCARD": {
+      const discard = state.players[controllerIndex].discard;
+      const spell = [...discard].reverse().find((c) => cardsById.get(c.cardId)?.type === "Spell");
+      if (!spell) return { state, resolvedTarget: null };
+      const spellCard = cardsById.get(spell.cardId);
+      if (!spellCard) return { state, resolvedTarget: null };
+      state = updatePlayer(state, controllerIndex, (p) => ({ ...p, discard: removeFromZone(p.discard, spell.instanceId) }));
+      state = resolveAbilities(state, controllerIndex, spellCard.slug, "ON_PLAY", cardsById, spell.instanceId, depth, ctx.random);
+      if (state.phase === "COMPLETE") return { state, resolvedTarget: spell.instanceId };
+      state = updatePlayer(state, controllerIndex, (p) => ({ ...p, discard: [...p.discard, spell] }));
+      state = afterMoveToDiscard(state, controllerIndex, spell, cardsById, depth);
+      return { state, resolvedTarget: spell.instanceId };
+    }
+
     default:
       return { state, resolvedTarget: null };
   }
@@ -715,7 +797,12 @@ function playCard(
   requireTurn(state, playerIndex);
 
   const player = state.players[playerIndex];
-  const inHand = findCardInstance(player.hand, instanceId);
+  let inHand = findCardInstance(player.hand, instanceId);
+  let fromDiscard = false;
+  if (!inHand && expectedType === "Spell" && player.spellsPlayableFromDiscardThisTurn) {
+    inHand = findCardInstance(player.discard, instanceId);
+    fromDiscard = true;
+  }
   if (!inHand) throw new IllegalActionError("That card isn't in your hand.");
 
   const card = requireCard(cardsById, inHand.cardId);
@@ -734,7 +821,12 @@ function playCard(
       }
       state = updatePlayer(state, playerIndex, (p) => ({ ...p, extraPlaysThisTurn: p.extraPlaysThisTurn - 1 }));
     }
-  } else {
+  } else if (!fromDiscard) {
+    // Art's "play Spells from your discard pile this turn" is specifically
+    // an ADDITIONAL allowance on top of the normal 1-per-turn Spell limit
+    // (otherwise the ability would be pointless — Art itself already used
+    // that turn's one Spell) — so a discard-sourced cast never consumes or
+    // is blocked by this counter at all.
     const unlimited = player.unlimitedSpellsThisTurn;
     const withinBaseLimit = player.spellsPlayedThisTurn < 1;
     if (!unlimited && !withinBaseLimit) {
@@ -747,9 +839,10 @@ function playCard(
 
   state = updatePlayer(state, playerIndex, (p) => ({
     ...p,
-    hand: removeFromZone(p.hand, instanceId),
+    hand: fromDiscard ? p.hand : removeFromZone(p.hand, instanceId),
+    discard: fromDiscard ? removeFromZone(p.discard, instanceId) : p.discard,
     itemsPlayedThisTurn: p.itemsPlayedThisTurn + (expectedType === "Item" ? 1 : 0),
-    spellsPlayedThisTurn: p.spellsPlayedThisTurn + (expectedType === "Spell" ? 1 : 0),
+    spellsPlayedThisTurn: p.spellsPlayedThisTurn + (expectedType === "Spell" && !fromDiscard ? 1 : 0),
   }));
 
   state = {
@@ -879,11 +972,13 @@ export function endTurn(
     extraPlaysThisTurn: 0,
     unlimitedSpellsThisTurn: false,
     damagePreventedThisTurn: false,
+    spellsPlayableFromDiscardThisTurn: false,
   }));
 
   state = updatePlayer(state, nextIndex, (p) => ({
     ...p,
     battlefield: p.battlefield.map((c) => ({ ...c, tired: false })),
+    handRevealedToOpponent: false,
   }));
 
   state = {
@@ -906,6 +1001,32 @@ export function concede(state: DigitalGameState, playerIndex: 0 | 1): DigitalGam
   };
 }
 
+// "Time Bomb: ... Remove 10 charge counters: Win the game." A player-
+// CHOSEN activated ability, not a trigger, so it's its own action rather
+// than a CARD_ABILITIES entry — same reasoning as Detention/Biologist.
+export function activateTimeBomb(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  instanceId: string,
+  cardsById: Map<string, EngineCard>,
+): DigitalGameState {
+  requireInProgress(state);
+  requireTurn(state, playerIndex);
+
+  const instance = findCardInstance(state.players[playerIndex].battlefield, instanceId);
+  if (!instance) throw new IllegalActionError("That Item isn't on your battlefield.");
+  const card = requireCard(cardsById, instance.cardId);
+  if (card.slug !== "time-bomb") throw new IllegalActionError("That card has no activatable ability.");
+  if ((instance.charges ?? 0) < 10) throw new IllegalActionError("Not enough charge counters yet.");
+
+  return {
+    ...state,
+    phase: "COMPLETE",
+    winnerIndex: playerIndex,
+    log: [...state.log, `${describePlayer(playerIndex)} removed 10 charge counters from Time Bomb and won the game.`],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Legal-action introspection
 // ---------------------------------------------------------------------------
@@ -914,6 +1035,7 @@ export type LegalAction =
   | { type: "PLAY_ITEM"; instanceId: string }
   | { type: "PLAY_SPELL"; instanceId: string }
   | { type: "ATTACK"; instanceId: string }
+  | { type: "ACTIVATE_TIME_BOMB"; instanceId: string }
   | { type: "END_TURN" };
 
 export function getLegalActions(
@@ -946,8 +1068,21 @@ export function getLegalActions(
       }
     }
   }
+  // Art's discard-cast allowance is exempt from the normal per-turn Spell
+  // limit entirely (see playCard's `fromDiscard` branch), so it's listed
+  // regardless of canPlaySpell.
+  if (player.spellsPlayableFromDiscardThisTurn) {
+    for (const c of player.discard) {
+      if (cardsById.get(c.cardId)?.type === "Spell") {
+        actions.push({ type: "PLAY_SPELL", instanceId: c.instanceId });
+      }
+    }
+  }
   for (const c of player.battlefield) {
     if (!c.tired) actions.push({ type: "ATTACK", instanceId: c.instanceId });
+    if (cardsById.get(c.cardId)?.slug === "time-bomb" && (c.charges ?? 0) >= 10) {
+      actions.push({ type: "ACTIVATE_TIME_BOMB", instanceId: c.instanceId });
+    }
   }
   actions.push({ type: "END_TURN" });
   return actions;
@@ -975,7 +1110,12 @@ export function getVisibleState(state: DigitalGameState, viewerIndex: 0 | 1): Vi
     health: p.health,
     spriteInstanceId: p.spriteInstanceId,
     deckCount: p.deck.length,
-    hand: isViewer ? p.hand : p.hand.map((c) => ({ instanceId: c.instanceId, hidden: true as const })),
+    // School Computers: a hand this player has revealed to their opponent
+    // is genuinely visible, not just "counted" like a normal opponent hand.
+    hand:
+      isViewer || p.handRevealedToOpponent
+        ? p.hand
+        : p.hand.map((c) => ({ instanceId: c.instanceId, hidden: true as const })),
     battlefield: p.battlefield,
     discard: p.discard,
     itemsPlayedThisTurn: p.itemsPlayedThisTurn,
@@ -983,6 +1123,8 @@ export function getVisibleState(state: DigitalGameState, viewerIndex: 0 | 1): Vi
     extraPlaysThisTurn: p.extraPlaysThisTurn,
     unlimitedSpellsThisTurn: p.unlimitedSpellsThisTurn,
     damagePreventedThisTurn: p.damagePreventedThisTurn,
+    spellsPlayableFromDiscardThisTurn: p.spellsPlayableFromDiscardThisTurn,
+    handRevealedToOpponent: p.handRevealedToOpponent,
   });
 
   return {
