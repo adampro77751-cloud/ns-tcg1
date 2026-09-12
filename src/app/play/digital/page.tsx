@@ -1,24 +1,33 @@
 import Link from "next/link";
-import { requireAdminPage } from "@/lib/admin";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
+// Anyone can VIEW this page (so the beta isn't invisible to normal
+// players) but only ADMIN accounts get working links — the actual access
+// boundary is enforced server-side on every route/action underneath this
+// page (requireAdminPage/requireAdminAction), never here. A non-admin
+// manually navigating to e.g. /play/digital/bot/new is still redirected
+// away there, regardless of what this page renders.
 export default async function DigitalPlayHomePage() {
-  const session = await requireAdminPage();
+  const session = await auth();
+  const isAdmin = session?.user?.role === "ADMIN";
 
-  const myMatches = await prisma.digitalMatch.findMany({
-    where: {
-      status: { in: ["WAITING", "READY", "IN_PROGRESS"] },
-      players: { some: { userId: session.user.id } },
-    },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      mode: true,
-      status: true,
-      joinCode: true,
-      format: { select: { name: true } },
-    },
-  });
+  const myMatches = isAdmin
+    ? await prisma.digitalMatch.findMany({
+        where: {
+          status: { in: ["WAITING", "READY", "IN_PROGRESS"] },
+          players: { some: { userId: session!.user.id } },
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          mode: true,
+          status: true,
+          joinCode: true,
+          format: { select: { name: true } },
+        },
+      })
+    : [];
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
@@ -29,8 +38,9 @@ export default async function DigitalPlayHomePage() {
         </span>
       </div>
       <p className="mt-2 text-sm text-slate-500">
-        Private beta — admin accounts only. Play against another admin online,
-        or against the V1 rules-based bot.
+        {isAdmin
+          ? "Private beta — admin accounts only. Play against another admin online, or against the V1 rules-based bot."
+          : "Digital Play is currently in private beta, open to admin accounts only. Everyone will be able to play once the beta opens up."}
       </p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -39,20 +49,24 @@ export default async function DigitalPlayHomePage() {
           <p className="mt-1 text-sm text-slate-600">
             Play against another player using a match code.
           </p>
-          <div className="mt-4 flex flex-col gap-2">
-            <Link
-              href="/play/digital/online/new"
-              className="rounded-full bg-violet-600 px-4 py-2 text-center text-sm font-bold text-white hover:bg-violet-700"
-            >
-              Create match
-            </Link>
-            <Link
-              href="/play/digital/online/join"
-              className="rounded-full border border-violet-300 px-4 py-2 text-center text-sm font-bold text-violet-700 hover:bg-violet-50"
-            >
-              Join with code
-            </Link>
-          </div>
+          {isAdmin ? (
+            <div className="mt-4 flex flex-col gap-2">
+              <Link
+                href="/play/digital/online/new"
+                className="rounded-full bg-violet-600 px-4 py-2 text-center text-sm font-bold text-white hover:bg-violet-700"
+              >
+                Create match
+              </Link>
+              <Link
+                href="/play/digital/online/join"
+                className="rounded-full border border-violet-300 px-4 py-2 text-center text-sm font-bold text-violet-700 hover:bg-violet-50"
+              >
+                Join with code
+              </Link>
+            </div>
+          ) : (
+            <LockedNotice />
+          )}
         </div>
 
         <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-white to-sky-50 p-6">
@@ -60,14 +74,18 @@ export default async function DigitalPlayHomePage() {
           <p className="mt-1 text-sm text-slate-600">
             Play against a computer-controlled opponent.
           </p>
-          <div className="mt-4">
-            <Link
-              href="/play/digital/bot/new"
-              className="block rounded-full bg-violet-600 px-4 py-2 text-center text-sm font-bold text-white hover:bg-violet-700"
-            >
-              Start bot match
-            </Link>
-          </div>
+          {isAdmin ? (
+            <div className="mt-4">
+              <Link
+                href="/play/digital/bot/new"
+                className="block rounded-full bg-violet-600 px-4 py-2 text-center text-sm font-bold text-white hover:bg-violet-700"
+              >
+                Start bot match
+              </Link>
+            </div>
+          ) : (
+            <LockedNotice />
+          )}
         </div>
       </div>
 
@@ -93,6 +111,14 @@ export default async function DigitalPlayHomePage() {
           </ul>
         </>
       )}
+    </div>
+  );
+}
+
+function LockedNotice() {
+  return (
+    <div className="mt-4 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-center text-sm font-semibold text-slate-400">
+      🔒 Private Beta — Admin only
     </div>
   );
 }
