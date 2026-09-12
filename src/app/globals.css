@@ -15,3 +15,17 @@ body {
     opacity: 1;
   }
 }
+
+/* Concrete-playground-floor texture behind the Digital Play battlefield
+   (src/app/play/digital/[id]/battlefield.tsx) — layered gradients only,
+   no external image asset. */
+.ns-concrete-floor {
+  background-color: #a8abae;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.08) 0 2px, transparent 2px 96px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.08) 0 2px, transparent 2px 96px),
+    radial-gradient(circle at 15% 20%, rgba(255, 255, 255, 0.18), transparent 45%),
+    radial-gradient(circle at 78% 65%, rgba(0, 0, 0, 0.14), transparent 50%),
+    radial-gradient(circle at 40% 88%, rgba(255, 255, 255, 0.1), transparent 40%),
+    radial-gradient(circle at 90% 15%, rgba(0, 0, 0, 0.1), transparent 35%);
+}
