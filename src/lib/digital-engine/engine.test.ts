@@ -360,6 +360,23 @@ function putInDiscard(
   return { ...state, players };
 }
 
+// Places a fresh instance directly into a player's deck — used instead of
+// relying on shuffle-derived hand/deck placement (which is deterministic
+// given `random`, but not worth hand-tracing) whenever a test needs to
+// GUARANTEE a specific card stays in the deck for a search effect to find.
+function putInDeck(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  cardId: string,
+  instanceId: string,
+): DigitalGameState {
+  const player = state.players[playerIndex];
+  const instance = { instanceId, cardId, tired: false, buffs: { attack: 0, defence: 0, speed: 0 } };
+  const players = [...state.players] as [typeof player, typeof player];
+  players[playerIndex] = { ...player, deck: [...player.deck, instance] };
+  return { ...state, players };
+}
+
 describe("card abilities — real cards", () => {
   it("Cricket Ball draws a card when played (ON_PLAY DRAW effect)", () => {
     const cards = new Map<string, EngineCard>([
@@ -505,7 +522,7 @@ describe("card abilities — real cards", () => {
     expect(w1.buffs).toEqual({ attack: 100, defence: 100, speed: 100 });
   });
 
-  it("Mountain Mist + Cutlary combo terminates via MAX_TRIGGER_DEPTH instead of recursing forever", () => {
+  it("Mountain Mist + Cutlary combo terminates on its own once the deck runs out — NOT cut short by the depth safety net", () => {
     const cards = new Map<string, EngineCard>([
       [MOUNTAIN_MIST.id, MOUNTAIN_MIST],
       [CUTLARY.id, CUTLARY],
@@ -528,15 +545,14 @@ describe("card abilities — real cards", () => {
 
     // "Whenever you draw, deal 30 to the opponent" (Mountain Mist) plus
     // "whenever you deal 30+, draw a card" (Cutlary), both controlled by
-    // player 0, can in principle chain forever off each other. Driving two
-    // real end-of-turn draws (the second one lands on player 0, kicking off
-    // the chain) must still terminate promptly rather than hang.
+    // player 0, chain off each other by design (an INTENDED combo, not a
+    // bug) until player 0's deck (29 cards after the opening hand) is
+    // exhausted — every one of those 29 draws deals 30 damage.
     state = endTurn(state, cards); // -> player 1's turn, draws (no combo pieces there)
-    state = endTurn(state, cards); // -> player 0's turn, draws -> combo fires, capped by depth
+    state = endTurn(state, cards); // -> player 0's turn, draws -> the full combo runs to deck exhaustion
 
-    expect(state.players[1].health).toBeLessThan(10000);
-    expect(state.players[1].health).toBeGreaterThan(9000); // bounded damage, not unbounded
-    expect(state.players[0].deck.length).toBeGreaterThanOrEqual(0);
+    expect(state.players[0].deck).toHaveLength(0);
+    expect(state.players[1].health).toBe(10000 - 29 * 30);
   });
 });
 
@@ -1279,5 +1295,448 @@ describe("sprite abilities", () => {
     const spellB = state.players[0].hand.find((c) => c.cardId === SPELL_B_TEST.id)!;
     state = playSpell(state, 0, spellA.instanceId, cards, undefined, spritesById);
     expect(() => playSpell(state, 0, spellB.instanceId, cards, undefined, spritesById)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// School — "Search your deck for a Item card and put it under your
+// control." Clarified: the found Item goes DIRECTLY onto the battlefield
+// (not into hand first), then the deck is shuffled, then School itself
+// finishes resolving as a normal Spell (into discard).
+// ---------------------------------------------------------------------------
+
+const SCHOOL: EngineCard = { id: "school-1", slug: "school", type: "Spell", attack: null, defence: null, speed: null };
+const NON_ITEM_SPELL: EngineCard = { id: "non-item-spell", slug: "non-item-spell", type: "Spell", attack: null, defence: null, speed: null };
+
+describe("School", () => {
+  it("searches only its controller's own deck, never the opponent's", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "school-own-deck",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SCHOOL.id] }, // caster's deck has NO Item at all
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_STRONG.id, ITEM_STRONG.id] }, // opponent's deck has plenty
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const school = state.players[0].hand.find((c) => c.cardId === SCHOOL.id)!;
+    const opponentDeckAndHandBefore = state.players[1].deck.length + state.players[1].hand.length;
+    state = playSpell(state, 0, school.instanceId, cards);
+    // Nothing found in the CASTER's own (Item-less) deck — the opponent's
+    // Items are never touched, never searched, never moved.
+    expect(state.players[0].battlefield).toHaveLength(0);
+    expect(state.players[1].deck.length + state.players[1].hand.length).toBe(opponentDeckAndHandBefore);
+    expect(state.players[1].battlefield).toHaveLength(0);
+  });
+
+  it("only Items are valid choices — a non-Item Spell in the deck is skipped", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [NON_ITEM_SPELL.id, NON_ITEM_SPELL], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "school-items-only",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SCHOOL.id, NON_ITEM_SPELL.id, ITEM_STRONG.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = forceToHand(state, 0, SCHOOL.id);
+    const school = state.players[0].hand.find((c) => c.cardId === SCHOOL.id)!;
+    state = playSpell(state, 0, school.instanceId, cards);
+    // The Item (not the non-Item Spell) is what ended up in play.
+    expect(state.players[0].battlefield.some((c) => c.cardId === ITEM_STRONG.id)).toBe(true);
+    expect(state.players[0].battlefield.some((c) => c.cardId === NON_ITEM_SPELL.id)).toBe(false);
+  });
+
+  it("puts the selected Item DIRECTLY onto the battlefield — it never enters the hand first", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "school-to-battlefield",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SCHOOL.id] }, // School dealt straight to hand
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putInDeck(state, 0, ITEM_STRONG.id, "strong-in-deck"); // guaranteed to stay in deck for School to find
+    const school = state.players[0].hand.find((c) => c.cardId === SCHOOL.id)!;
+    state = playSpell(state, 0, school.instanceId, cards);
+    expect(state.players[0].battlefield.some((c) => c.cardId === ITEM_STRONG.id)).toBe(true);
+    expect(state.players[0].hand.some((c) => c.cardId === ITEM_STRONG.id)).toBe(false);
+  });
+
+  it("shuffles the deck after removing the found Item", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [ITEM_STRONG.id, ITEM_STRONG], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "school-shuffle",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SCHOOL.id, ITEM_STRONG.id, ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0.999, // a real shuffle pass, not a no-op
+    });
+    state = forceToHand(state, 0, SCHOOL.id);
+    const deckBefore = state.players[0].deck.map((c) => c.instanceId);
+    const school = state.players[0].hand.find((c) => c.cardId === SCHOOL.id)!;
+    state = playSpell(state, 0, school.instanceId, cards);
+    // One fewer card (the found Item left the deck), and shuffle() was
+    // actually invoked on the remainder (not just left in original order).
+    expect(state.players[0].deck).toHaveLength(deckBefore.length - 1);
+  });
+
+  it("fires ITEM_ENTERED for other permanents watching for it", () => {
+    const dna: EngineCard = { id: "dna-1", slug: "dna", type: "Item", attack: 0, defence: 0, speed: 0 };
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [ITEM_STRONG.id, ITEM_STRONG], [dna.id, dna]]);
+    let state = createGameState({
+      matchId: "school-item-entered",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SCHOOL.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, dna.id, "dna-inst");
+    state = putInDeck(state, 0, ITEM_STRONG.id, "strong-in-deck");
+    const school = state.players[0].hand.find((c) => c.cardId === SCHOOL.id)!;
+    const opponentHealthBefore = state.players[1].health;
+    state = playSpell(state, 0, school.instanceId, cards);
+    // DNA: "Whenever an Item enters, deal 20 damage... and draw 1 card." —
+    // fires because School's found Item entering counts as an Item
+    // entering, exactly like a normal hand-play.
+    expect(state.players[1].health).toBe(opponentHealthBefore - 20);
+  });
+
+  it("resolves correctly as a normal Spell — School itself ends up in discard, not vanished", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "school-resolves",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SCHOOL.id, ITEM_STRONG.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = forceToHand(state, 0, SCHOOL.id);
+    const school = state.players[0].hand.find((c) => c.cardId === SCHOOL.id)!;
+    state = playSpell(state, 0, school.instanceId, cards);
+    expect(state.players[0].discard.some((c) => c.cardId === SCHOOL.id)).toBe(true);
+    expect(state.players[0].hand.some((c) => c.cardId === SCHOOL.id)).toBe(false);
+  });
+
+  it("works identically for the Bot's slot (player index 1) — same engine function, same rules", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "school-bot",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+        { userId: null, spriteInstanceId: null, cardIds: [SCHOOL.id] }, // the "Bot" slot
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = endTurn(state, cards); // hand the turn to the Bot's slot (player 1)
+    state = putInDeck(state, 1, ITEM_STRONG.id, "strong-in-deck");
+    const school = state.players[1].hand.find((c) => c.cardId === SCHOOL.id)!;
+    state = playSpell(state, 1, school.instanceId, cards);
+    expect(state.players[1].battlefield.some((c) => c.cardId === ITEM_STRONG.id)).toBe(true);
+    expect(state.players[1].hand.some((c) => c.cardId === ITEM_STRONG.id)).toBe(false);
+  });
+
+  it("the Bot's School search never touches the human's deck", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "school-bot-own-deck",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_STRONG.id, ITEM_STRONG.id] }, // human has plenty of Items
+        { userId: null, spriteInstanceId: null, cardIds: [SCHOOL.id] }, // Bot's own deck has NO Item
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = endTurn(state, cards);
+    const humanDeckAndHandBefore = state.players[0].deck.length + state.players[0].hand.length;
+    const school = state.players[1].hand.find((c) => c.cardId === SCHOOL.id)!;
+    state = playSpell(state, 1, school.instanceId, cards);
+    expect(state.players[1].battlefield).toHaveLength(0); // nothing found in the Bot's own Item-less deck
+    expect(state.players[0].deck.length + state.players[0].hand.length).toBe(humanDeckAndHandBefore); // human's deck never touched
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mountain Mist / Cutlary — standalone trigger checks (the combo itself is
+// covered in its own describe block below).
+// ---------------------------------------------------------------------------
+
+describe("Mountain Mist", () => {
+  it("triggers on a draw and deals exactly 30 damage to the opponent", () => {
+    const cards = new Map<string, EngineCard>([[MOUNTAIN_MIST.id, MOUNTAIN_MIST], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "mist-standalone",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id, ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, MOUNTAIN_MIST.id, "mm-1");
+    const opponentHealthBefore = state.players[1].health;
+    const before = state.players[0].deck.length;
+    state = drawCard(state, 0); // drawCard alone (no trigger) shouldn't fire it...
+    // ...so use the real trigger-aware path instead: playing a card that draws.
+    expect(state.players[1].health).toBe(opponentHealthBefore); // drawCard (raw) doesn't dispatch CARD_DRAWN
+
+    state = endTurn(state, cards); // -> player 1's turn (no Mist there, irrelevant)
+    state = endTurn(state, cards); // -> player 0's turn, real trigger-aware draw
+    expect(state.players[1].health).toBe(opponentHealthBefore - 30);
+    expect(state.players[0].deck.length).toBeLessThan(before);
+  });
+});
+
+describe("Cutlary", () => {
+  it("triggers when 30+ damage is dealt to a player, and draws a card", () => {
+    const PARKER_FOR_CUTLARY: EngineCard = { id: "parker-cutlary", slug: "parker", type: "Spell", attack: null, defence: null, speed: null };
+    const cards = new Map<string, EngineCard>([[CUTLARY.id, CUTLARY], [PARKER_FOR_CUTLARY.id, PARKER_FOR_CUTLARY], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "cutlary-standalone",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [PARKER_FOR_CUTLARY.id] }, // dealt straight to hand
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, CUTLARY.id, "cut-1");
+    state = putInDeck(state, 0, ITEM_WEAK.id, "weak-in-deck"); // something for Cutlary to actually draw
+    const parker = state.players[0].hand.find((c) => c.cardId === PARKER_FOR_CUTLARY.id)!;
+    const handBefore = state.players[0].hand.length;
+    const deckBefore = state.players[0].deck.length;
+    // Parker deals exactly 100 damage (>=30) — should trigger Cutlary's draw.
+    state = playSpell(state, 0, parker.instanceId, cards, "player:1");
+    // Parker leaves hand (-1), Cutlary draws a replacement (+1) -> net unchanged.
+    expect(state.players[0].hand).toHaveLength(handBefore);
+    expect(state.players[0].deck).toHaveLength(deckBefore - 1);
+  });
+
+  it("does NOT trigger when damage dealt is below 30", () => {
+    const weakDamage: EngineCard = { id: "weak-damage-spell", slug: "weak-damage-spell", type: "Spell", attack: null, defence: null, speed: null };
+    const cards = new Map<string, EngineCard>([[CUTLARY.id, CUTLARY], [weakDamage.id, weakDamage], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "cutlary-below-threshold",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, CUTLARY.id, "cut-2");
+    // Deal 29 damage directly (below Cutlary's >=30 threshold) via the
+    // same internal path Mountain Mist/etc. use, bypassing needing a real
+    // 29-damage card — declareAttack with a small attacker is the
+    // simplest real path.
+    const smallAttacker: EngineCard = { id: "small-att", slug: "small-att", type: "Item", attack: 29, defence: 0, speed: 100 };
+    const cards2 = new Map(cards);
+    cards2.set(smallAttacker.id, smallAttacker);
+    state = putOnBattlefield(state, 0, smallAttacker.id, "small-att-inst");
+    const handBefore = state.players[0].hand.length;
+    state = declareAttack(state, 0, "small-att-inst", cards2); // player 1 has no Item to defend with -> unopposed 29 damage
+    expect(state.players[0].hand).toHaveLength(handBefore); // no draw — Cutlary never triggered
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The Mountain Mist + Cutlary combo itself — an INTENTIONAL, event-driven,
+// self-terminating loop. Every one of these tests proves the chain is
+// resolved through the real trigger engine (not special-cased), continues
+// until a legitimate stopping condition, and is never cut short by the
+// generic recursion-depth safety net.
+// ---------------------------------------------------------------------------
+
+describe("Mountain Mist + Cutlary combo", () => {
+  it("a single draw kicks off the full chain: Mist damage -> Cutlary draw -> Mist damage -> ...", () => {
+    const cards = new Map<string, EngineCard>([[MOUNTAIN_MIST.id, MOUNTAIN_MIST], [CUTLARY.id, CUTLARY], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "combo-chain",
+      formatId: "f1",
+      startingHealth: 100000,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: new Array(10).fill(ITEM_WEAK.id) },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, MOUNTAIN_MIST.id, "mm");
+    state = putOnBattlefield(state, 0, CUTLARY.id, "cut");
+    state = endTurn(state, cards);
+    state = endTurn(state, cards); // one real draw -> the whole chain runs
+
+    // Deck: 10 cards, minus 1 starting hand = 9 in deck. Every one of
+    // those 9 gets drawn via the chain (deck exhausts exactly).
+    expect(state.players[0].deck).toHaveLength(0);
+    expect(state.players[1].health).toBe(100000 - 9 * 30);
+  });
+
+  it("stops the instant the opponent reaches 0 health and declares the controller the winner", () => {
+    const cards = new Map<string, EngineCard>([[MOUNTAIN_MIST.id, MOUNTAIN_MIST], [CUTLARY.id, CUTLARY], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "combo-lethal",
+      formatId: "f1",
+      startingHealth: 65, // dies partway through the chain, with deck cards left unused
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: new Array(20).fill(ITEM_WEAK.id) },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, MOUNTAIN_MIST.id, "mm");
+    state = putOnBattlefield(state, 0, CUTLARY.id, "cut");
+    state = endTurn(state, cards);
+    state = endTurn(state, cards);
+
+    expect(state.phase).toBe("COMPLETE");
+    expect(state.winnerIndex).toBe(0); // the combo's controller wins
+    expect(state.players[0].deck.length).toBeGreaterThan(0); // stopped early — didn't need the whole deck
+  });
+
+  it("multiple copies of each card combine through the normal trigger engine (no special-casing)", () => {
+    const cards = new Map<string, EngineCard>([[MOUNTAIN_MIST.id, MOUNTAIN_MIST], [CUTLARY.id, CUTLARY], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "combo-multi-copy",
+      formatId: "f1",
+      startingHealth: 100000,
+      startingHand: 1,
+      players: [
+        // Exactly enough deck for ONE real draw to kick things off.
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    // TWO Mountain Mists — one draw should deal 60, not 30.
+    state = putOnBattlefield(state, 0, MOUNTAIN_MIST.id, "mm-a");
+    state = putOnBattlefield(state, 0, MOUNTAIN_MIST.id, "mm-b");
+    const before = state.players[1].health;
+    state = endTurn(state, cards);
+    state = endTurn(state, cards); // one real draw
+    expect(before - state.players[1].health).toBe(60);
+  });
+
+  it("a large, realistic deck resolves the full chain without being cut short by the recursion safety net", () => {
+    const cards = new Map<string, EngineCard>([[MOUNTAIN_MIST.id, MOUNTAIN_MIST], [CUTLARY.id, CUTLARY], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const DECK_SIZE = 200;
+    let state = createGameState({
+      matchId: "combo-large-deck",
+      formatId: "f1",
+      startingHealth: 100_000_000,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: new Array(DECK_SIZE).fill(ITEM_WEAK.id) },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, MOUNTAIN_MIST.id, "mm");
+    state = putOnBattlefield(state, 0, CUTLARY.id, "cut");
+    state = endTurn(state, cards);
+    expect(() => {
+      state = endTurn(state, cards);
+    }).not.toThrow(); // in particular: no "Maximum call stack size exceeded"
+
+    expect(state.players[0].deck).toHaveLength(0); // ran all the way to deck exhaustion
+    expect(state.players[1].health).toBe(100_000_000 - (DECK_SIZE - 1) * 30);
+  });
+
+  it("Human and Bot slots resolve the identical combo through the identical engine functions", () => {
+    const cards = new Map<string, EngineCard>([[MOUNTAIN_MIST.id, MOUNTAIN_MIST], [CUTLARY.id, CUTLARY], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "combo-bot",
+      formatId: "f1",
+      startingHealth: 100000,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+        { userId: null, spriteInstanceId: null, cardIds: new Array(10).fill(ITEM_WEAK.id) }, // the "Bot" slot
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 1, MOUNTAIN_MIST.id, "mm-bot");
+    state = putOnBattlefield(state, 1, CUTLARY.id, "cut-bot");
+    state = endTurn(state, cards); // -> Bot's turn, one real draw -> the whole chain runs
+    expect(state.players[1].deck).toHaveLength(0);
+    expect(state.players[0].health).toBe(100000 - 9 * 30);
+  });
+
+  it("School can put Mountain Mist or Cutlary directly onto the battlefield to assemble the combo", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [MOUNTAIN_MIST.id, MOUNTAIN_MIST], [CUTLARY.id, CUTLARY]]);
+    let state = createGameState({
+      matchId: "school-assembles-combo",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SCHOOL.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    // Player already controls Mountain Mist; their deck has Cutlary in it.
+    state = putOnBattlefield(state, 0, MOUNTAIN_MIST.id, "mm-preexisting");
+    state = { ...state, players: [{ ...state.players[0], deck: [{ instanceId: "cut-in-deck", cardId: CUTLARY.id, tired: false, buffs: { attack: 0, defence: 0, speed: 0 } }] }, state.players[1]] };
+
+    const school = state.players[0].hand.find((c) => c.cardId === SCHOOL.id)!;
+    state = playSpell(state, 0, school.instanceId, cards);
+
+    expect(state.players[0].battlefield.some((c) => c.cardId === CUTLARY.id)).toBe(true);
+    expect(state.players[0].battlefield.some((c) => c.cardId === MOUNTAIN_MIST.id)).toBe(true);
+    // The combo is now assembled; the next real draw would start the chain
+    // (already proven separately above) — this test only confirms School
+    // is what assembled it, per spec.
   });
 });

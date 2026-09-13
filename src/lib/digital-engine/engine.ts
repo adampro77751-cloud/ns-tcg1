@@ -44,7 +44,25 @@ import { getEquippedSprite, getSpriteTopicBonus, type SpriteEngineData } from ".
 // This needs confirming/correcting against the real designed rules —
 // flagged explicitly, not silently assumed to be canonical.
 
-const MAX_TRIGGER_DEPTH = 8;
+// Recursion-depth SAFETY NET ONLY — not a gameplay limiter. It exists
+// purely to bound the JS call stack in case some future card creates a
+// truly unbounded cycle (one with no finite resource backing it). It must
+// NEVER be small enough to cut off a legitimate, self-limiting combo before
+// it reaches its own natural stopping point.
+//
+// The canonical example: Mountain Mist ("whenever you draw, deal 30
+// damage") + Cutlary ("whenever you deal 30+ damage, draw a card") chain
+// indefinitely on paper, but every real playout is bounded by the
+// controller's own deck size — drawWithTrigger is a no-op on an empty
+// deck (no CARD_DRAWN dispatch fires), so the chain always terminates on
+// its own once the deck runs out, or sooner if the opponent reaches 0
+// health first (checkWin short-circuits further dispatch immediately).
+// Real NS TCG decks are nowhere near large enough to approach this bound
+// (each full draw/damage/draw cycle costs ~2 depth units), so this value
+// is chosen to comfortably outlast any realistic deck while still being
+// small enough to protect the server's call stack from a genuinely
+// unbounded loop.
+const MAX_TRIGGER_DEPTH = 2000;
 const ZERO_BUFFS: StatBuffs = { attack: 0, defence: 0, speed: 0 };
 
 function findCardInstance(
@@ -337,29 +355,32 @@ function isDetentionInPlay(state: DigitalGameState, cardsById: Map<string, Engin
   );
 }
 
-function drawWithTrigger(
+// Raw draw (Detention check + actually shifting a card, no dispatch) —
+// shared by drawWithTrigger (the recursive-context entry point) and
+// applyEffect's DRAW case when running inside dispatchEvent's iterative
+// queue (see EffectRunCtx.enqueue), so both paths apply the exact same
+// draw semantics.
+function performRawDraw(
   state: DigitalGameState,
   playerIndex: 0 | 1,
   cardsById: Map<string, EngineCard>,
-  depth: number,
-  spritesById: Map<string, SpriteEngineData> = new Map(),
-): DigitalGameState {
-  if (isDetentionInPlay(state, cardsById)) return state;
+): { state: DigitalGameState; drew: boolean } {
+  if (isDetentionInPlay(state, cardsById)) return { state, drew: false };
   const before = state.players[playerIndex].deck.length;
   state = drawCardRaw(state, playerIndex);
-  if (state.players[playerIndex].deck.length === before) return state; // was a no-op (empty deck)
-  return dispatchEvent(state, "CARD_DRAWN", { drawingPlayerIndex: playerIndex }, cardsById, depth + 1, spritesById);
+  return { state, drew: state.players[playerIndex].deck.length !== before };
 }
 
-function dealDamageWithTrigger(
+// Raw damage (Fire Sprite bonus + prevention + health update + win check,
+// no dispatch) — same sharing principle as performRawDraw, for
+// dealDamageWithTrigger and applyEffect's DAMAGE case.
+function performRawDamage(
   state: DigitalGameState,
   targetIndex: 0 | 1,
   amount: number,
   dealtByIndex: 0 | 1,
-  cardsById: Map<string, EngineCard>,
-  depth: number,
-  spritesById: Map<string, SpriteEngineData> = new Map(),
-): DigitalGameState {
+  spritesById: Map<string, SpriteEngineData>,
+): { state: DigitalGameState; actualAmount: number } {
   // Fire Sprite: "If you would deal damage to an opponent, deal an
   // additional 10/20 damage." Only applies when dealing damage to the
   // OPPONENT (not self-inflicted effects), matching the real text exactly.
@@ -378,13 +399,39 @@ function dealDamageWithTrigger(
   const actualAmount = target.damagePreventedThisTurn ? 0 : boostedAmount;
   state = updatePlayer(state, targetIndex, (p) => ({ ...p, health: p.health - actualAmount }));
   state = checkWin(state);
-  if (state.phase === "COMPLETE" || actualAmount <= 0) return state;
+  return { state, actualAmount };
+}
+
+function drawWithTrigger(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  cardsById: Map<string, EngineCard>,
+  depth: number,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
+): DigitalGameState {
+  const { state: next, drew } = performRawDraw(state, playerIndex, cardsById);
+  if (!drew) return next;
+  return dispatchEvent(next, "CARD_DRAWN", { drawingPlayerIndex: playerIndex }, cardsById, depth + 1, spritesById);
+}
+
+function dealDamageWithTrigger(
+  state: DigitalGameState,
+  targetIndex: 0 | 1,
+  amount: number,
+  dealtByIndex: 0 | 1,
+  cardsById: Map<string, EngineCard>,
+  depth: number,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
+): DigitalGameState {
+  const { state: next, actualAmount } = performRawDamage(state, targetIndex, amount, dealtByIndex, spritesById);
+  if (next.phase === "COMPLETE" || actualAmount <= 0) return next;
   return dispatchEvent(
-    state,
+    next,
     "DAMAGE_DEALT",
     { dealtByPlayerIndex: dealtByIndex, amount: actualAmount },
     cardsById,
     depth + 1,
+    spritesById,
   );
 }
 
@@ -440,6 +487,14 @@ function enterBattlefield(
 // Effect execution
 // ---------------------------------------------------------------------------
 
+type EventPayload = {
+  drawingPlayerIndex?: 0 | 1;
+  dealtByPlayerIndex?: 0 | 1;
+  amount?: number;
+  enteredInstanceId?: string;
+  playerIndex?: 0 | 1;
+};
+
 type EffectRunCtx = {
   controllerIndex: 0 | 1;
   /** The specific instance a self-referential trigger (CARD_DISCARDED) is
@@ -456,7 +511,43 @@ type EffectRunCtx = {
    *  their documented auto-heuristic. */
   chosenTarget?: string;
   spritesById: Map<string, SpriteEngineData>;
+  /** Set ONLY when this effect is running inside dispatchEvent's own
+   *  iterative queue (i.e. it's itself a reaction to some other event).
+   *  When present, a DRAW/DAMAGE effect that actually draws/deals damage
+   *  pushes the resulting CARD_DRAWN/DAMAGE_DEALT event onto that SAME
+   *  queue instead of recursively calling dispatchEvent again — this is
+   *  what lets a long chain (Mountain Mist + Cutlary combo-ing off each
+   *  other for as many cycles as the deck allows) run as a flat loop
+   *  instead of nested recursion, so it can never overflow the call
+   *  stack no matter how long the deck lets it run. When absent (the
+   *  ON_PLAY / CARD_DISCARDED / ATTACK_STARTED resolution paths, which
+   *  aren't themselves inside that queue), DRAW/DAMAGE fall back to the
+   *  normal recursive drawWithTrigger/dealDamageWithTrigger — those are
+   *  each still just ONE call deep from here (dispatchEvent's own queue
+   *  absorbs everything past that), so this stays shallow either way. */
+  enqueue?: (event: GameEvent, payload: EventPayload) => void;
 };
+
+// Applies damage, then either enqueues the resulting DAMAGE_DEALT (when
+// running inside dispatchEvent's iterative queue — see EffectRunCtx.enqueue)
+// or falls back to the normal recursive dealDamageWithTrigger.
+function dealDamageMaybeEnqueue(
+  state: DigitalGameState,
+  targetIndex: 0 | 1,
+  amount: number,
+  dealtByIndex: 0 | 1,
+  cardsById: Map<string, EngineCard>,
+  depth: number,
+  ctx: EffectRunCtx,
+): DigitalGameState {
+  if (ctx.enqueue) {
+    const { state: next, actualAmount } = performRawDamage(state, targetIndex, amount, dealtByIndex, ctx.spritesById);
+    if (next.phase === "COMPLETE" || actualAmount <= 0) return next;
+    ctx.enqueue("DAMAGE_DEALT", { dealtByPlayerIndex: dealtByIndex, amount: actualAmount });
+    return next;
+  }
+  return dealDamageWithTrigger(state, targetIndex, amount, dealtByIndex, cardsById, depth, ctx.spritesById);
+}
 
 function findInstanceAnywhere(
   state: DigitalGameState,
@@ -483,7 +574,13 @@ function applyEffect(
     case "DRAW": {
       const targetIndex = effect.target === "OPPONENT" ? opponentIdx : controllerIndex;
       for (let i = 0; i < amount; i++) {
-        state = drawWithTrigger(state, targetIndex, cardsById, depth, ctx.spritesById);
+        if (ctx.enqueue) {
+          const { state: next, drew } = performRawDraw(state, targetIndex, cardsById);
+          state = next;
+          if (drew) ctx.enqueue("CARD_DRAWN", { drawingPlayerIndex: targetIndex });
+        } else {
+          state = drawWithTrigger(state, targetIndex, cardsById, depth, ctx.spritesById);
+        }
       }
       return { state, resolvedTarget: null };
     }
@@ -493,7 +590,7 @@ function applyEffect(
         const chosen = ctx.chosenTarget;
         if (chosen?.startsWith("player:")) {
           const targetIndex = chosen === "player:0" ? 0 : 1;
-          state = dealDamageWithTrigger(state, targetIndex, amount, controllerIndex, cardsById, depth, ctx.spritesById);
+          state = dealDamageMaybeEnqueue(state, targetIndex, amount, controllerIndex, cardsById, depth, ctx);
           return { state, resolvedTarget: chosen };
         }
         if (chosen?.startsWith("item:")) {
@@ -516,11 +613,11 @@ function applyEffect(
           }
         }
         // No (valid) chosen target — bot/fallback path, same as before this feature existed.
-        state = dealDamageWithTrigger(state, opponentIdx, amount, controllerIndex, cardsById, depth, ctx.spritesById);
+        state = dealDamageMaybeEnqueue(state, opponentIdx, amount, controllerIndex, cardsById, depth, ctx);
         return { state, resolvedTarget: null };
       }
       const targetIndex = effect.target === "SELF" ? controllerIndex : opponentIdx;
-      state = dealDamageWithTrigger(state, targetIndex, amount, controllerIndex, cardsById, depth, ctx.spritesById);
+      state = dealDamageMaybeEnqueue(state, targetIndex, amount, controllerIndex, cardsById, depth, ctx);
       return { state, resolvedTarget: null };
     }
 
@@ -634,18 +731,10 @@ function applyEffect(
       return { state, resolvedTarget: item.instanceId };
     }
 
-    case "SEARCH_DECK": {
-      const deck = state.players[controllerIndex].deck;
-      const found = deck.find((c) => cardsById.get(c.cardId)?.type === "Item");
-      if (!found) return { state, resolvedTarget: null };
-      const rest = shuffle(removeFromZone(deck, found.instanceId), ctx.random);
-      state = updatePlayer(state, controllerIndex, (p) => ({ ...p, deck: rest, hand: [...p.hand, found] }));
-      return { state, resolvedTarget: null };
-    }
-
-    // Cathedral Pergrines: same search as SEARCH_DECK, but the found Item
-    // goes straight onto the battlefield ("put it onto the battlefield"),
-    // not into hand.
+    // Used by both School ("search your deck for an Item, put it under
+    // your control" — clarified to mean directly onto the battlefield)
+    // and Cathedral Pergrines ("search your deck for any Item and put it
+    // onto the battlefield under your control").
     case "SEARCH_DECK_TO_PLAY": {
       const deck = state.players[controllerIndex].deck;
       const found = deck.find((c) => cardsById.get(c.cardId)?.type === "Item");
@@ -988,56 +1077,73 @@ const TRIGGER_LABELS: Record<string, string> = {
 // instance that just entered) and fires any ability matching `event`,
 // applying an optional amount-threshold condition (Cutlary's ">=30
 // damage").
+// Iterative, NOT recursive — this is what lets a long legitimate chain
+// (Mountain Mist + Cutlary drawing/dealing damage off each other, for as
+// many cycles as the controller's deck allows) run to its own natural
+// conclusion (deck exhaustion, or a win) as a flat loop instead of nested
+// function calls, so it can never overflow the JS call stack regardless of
+// how long the chain runs. A DRAW/DAMAGE effect that fires while this loop
+// is already draining (see EffectRunCtx.enqueue, passed to every applyEffect
+// call below) pushes its resulting event onto the SAME queue rather than
+// recursing back into dispatchEvent — the queue IS the recursion, made
+// explicit and bounded by MAX_TRIGGER_DEPTH iterations (a stack-overflow
+// safety net only, never a gameplay limiter — see that constant's comment).
 function dispatchEvent(
   state: DigitalGameState,
   event: GameEvent,
-  payload: {
-    drawingPlayerIndex?: 0 | 1;
-    dealtByPlayerIndex?: 0 | 1;
-    amount?: number;
-    enteredInstanceId?: string;
-    playerIndex?: 0 | 1;
-  },
+  payload: EventPayload,
   cardsById: Map<string, EngineCard>,
   depth: number,
   spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   if (depth >= MAX_TRIGGER_DEPTH) return state;
 
-  for (const ownerIndex of [0, 1] as const) {
-    for (const instance of state.players[ownerIndex].battlefield) {
-      if (event === "ITEM_ENTERED" && instance.instanceId === payload.enteredInstanceId) continue;
-      const card = cardsById.get(instance.cardId);
-      if (!card) continue;
-      const abilities = getCardAbilities(card.slug).filter((a) => a.trigger === event);
-      for (const ability of abilities) {
-        if (event === "CARD_DRAWN" && payload.drawingPlayerIndex !== ownerIndex) continue;
-        if (event === "ITEM_PLAYED" && payload.playerIndex !== ownerIndex) continue;
-        if (event === "SPELL_PLAYED" && payload.playerIndex !== ownerIndex) continue;
-        if (event === "DAMAGE_DEALT") {
-          if (payload.dealtByPlayerIndex !== ownerIndex) continue;
-          const min = ability.condition?.minAmount;
-          if (min !== undefined && (payload.amount ?? 0) < min) continue;
-        }
-        state = { ...state, log: [...state.log, describeTrigger(ownerIndex, card.slug, event, cardsById)] };
-        let previousTarget: string | null = null;
-        for (const effect of ability.effects) {
-          const result = applyEffect(
-            state,
-            effect,
-            {
-              controllerIndex: ownerIndex,
-              thisInstanceId: instance.instanceId,
-              cardsById,
-              depth,
-              random: Math.random,
-              spritesById,
-            },
-            previousTarget,
-          );
-          state = result.state;
-          if (result.resolvedTarget) previousTarget = result.resolvedTarget;
-          if (state.phase === "COMPLETE") return state;
+  const queue: { event: GameEvent; payload: EventPayload }[] = [{ event, payload }];
+  const enqueue = (e: GameEvent, p: EventPayload) => queue.push({ event: e, payload: p });
+  let iterations = depth;
+
+  while (queue.length > 0) {
+    if (state.phase === "COMPLETE") return state;
+    if (iterations >= MAX_TRIGGER_DEPTH) return state;
+    iterations++;
+
+    const current = queue.shift()!;
+    for (const ownerIndex of [0, 1] as const) {
+      for (const instance of state.players[ownerIndex].battlefield) {
+        if (current.event === "ITEM_ENTERED" && instance.instanceId === current.payload.enteredInstanceId) continue;
+        const card = cardsById.get(instance.cardId);
+        if (!card) continue;
+        const abilities = getCardAbilities(card.slug).filter((a) => a.trigger === current.event);
+        for (const ability of abilities) {
+          if (current.event === "CARD_DRAWN" && current.payload.drawingPlayerIndex !== ownerIndex) continue;
+          if (current.event === "ITEM_PLAYED" && current.payload.playerIndex !== ownerIndex) continue;
+          if (current.event === "SPELL_PLAYED" && current.payload.playerIndex !== ownerIndex) continue;
+          if (current.event === "DAMAGE_DEALT") {
+            if (current.payload.dealtByPlayerIndex !== ownerIndex) continue;
+            const min = ability.condition?.minAmount;
+            if (min !== undefined && (current.payload.amount ?? 0) < min) continue;
+          }
+          state = { ...state, log: [...state.log, describeTrigger(ownerIndex, card.slug, current.event, cardsById)] };
+          let previousTarget: string | null = null;
+          for (const effect of ability.effects) {
+            const result = applyEffect(
+              state,
+              effect,
+              {
+                controllerIndex: ownerIndex,
+                thisInstanceId: instance.instanceId,
+                cardsById,
+                depth: iterations,
+                random: Math.random,
+                spritesById,
+                enqueue,
+              },
+              previousTarget,
+            );
+            state = result.state;
+            if (result.resolvedTarget) previousTarget = result.resolvedTarget;
+            if (state.phase === "COMPLETE") return state;
+          }
         }
       }
     }

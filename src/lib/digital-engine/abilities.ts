@@ -32,7 +32,6 @@ export type EffectType =
   | "MOVE_TO_DISCARD"
   | "RETURN_TO_HAND"
   | "RETURN_TO_PLAY"
-  | "SEARCH_DECK"
   | "BUFF_ATTACK"
   | "BUFF_DEFENSE"
   | "BUFF_SPEED"
@@ -73,7 +72,6 @@ export type EffectTarget =
   | "ANY_ITEM" // any Item on either battlefield (player-chosen when played from hand; else auto: strongest by Attack)
   | "ANY_TARGET" // any player OR any Item on either battlefield (player-chosen when played from hand; else auto: the opponent player)
   | "SELF_DISCARD" // a card in the controller's own discard pile (auto: most recently discarded)
-  | "SELF_DECK_ITEM" // an Item card in the controller's own deck (auto: first found; deck reshuffled after)
   | "SELF_HAND_ITEM" // an Item card in the controller's own hand (auto: first found)
   | "OPPONENT_HAND_ITEM" // an Item card in the opponent's hand (auto: highest Attack)
   | "THIS" // the specific instance that triggered a self-referential event
@@ -237,9 +235,18 @@ export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
   ],
 
   // "Search your deck for an Item card and put it under your control." —
-  // no "into play" wording, so this goes to hand (unlike IT Room, which
-  // says "into play" explicitly).
-  school: [{ trigger: "ON_PLAY", effects: [{ type: "SEARCH_DECK", target: "SELF_DECK_ITEM" }] }],
+  // per explicit clarification, this puts the found Item DIRECTLY onto
+  // the battlefield (not into hand first), then shuffles the deck — the
+  // same shape as Cathedral Pergrines' search, hence the shared
+  // SEARCH_DECK_TO_PLAY effect. "Choose ONE Item" is the controller's own
+  // choice in the real text; auto-resolved to the first Item found in the
+  // deck (no deck-contents picker UI exists — deck contents stay hidden
+  // information, same simplification policy as every other undirected
+  // choice in this engine). Putting the Item onto the battlefield this
+  // way still fires its own ON_PLAY and the normal ITEM_ENTERED trigger
+  // for every other permanent watching for it (enterBattlefield is the
+  // single chokepoint for that, used identically here).
+  school: [{ trigger: "ON_PLAY", effects: [{ type: "SEARCH_DECK_TO_PLAY" }] }],
 
   // "All Items you control become copies of target Item permanently." —
   // target auto-picked as the strongest Item on either battlefield.
