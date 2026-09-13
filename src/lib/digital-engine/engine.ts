@@ -928,6 +928,14 @@ function resolveAbilities(
   if (depth >= MAX_TRIGGER_DEPTH) return state;
   const abilities = getCardAbilities(cardSlug).filter((a) => a.trigger === trigger);
   for (const ability of abilities) {
+    // ON_PLAY is already narrated by the "played Item/Spell" log line from
+    // playCard — only genuinely reactive triggers get their own line here,
+    // so the match log reads as a clear play-by-play of what fired and why
+    // (helps a lot when it's the bot acting, since nothing else narrates
+    // its turn as it happens).
+    if (trigger !== "ON_PLAY") {
+      state = { ...state, log: [...state.log, describeTrigger(controllerIndex, cardSlug, trigger, cardsById)] };
+    }
     let previousTarget: string | null = null;
     for (const effect of ability.effects) {
       const result = applyEffect(
@@ -943,6 +951,37 @@ function resolveAbilities(
   }
   return state;
 }
+
+// Human-readable line for a reactive ability firing — resolveAbilities and
+// dispatchEvent both use this so the log narrates every trigger the same
+// way, not just the handful of cards with a bespoke message. Looks the
+// card up by slug (its only unique identity available at this call site)
+// purely to log its real DB id — the client substitutes id -> name for
+// display (see the battlefield UI's humanizeLog), same trick as every
+// other log line here.
+function describeTrigger(
+  controllerIndex: 0 | 1,
+  cardSlug: string,
+  trigger: AbilitySpec["trigger"],
+  cardsById: Map<string, EngineCard>,
+): string {
+  const card = Array.from(cardsById.values()).find((c) => c.slug === cardSlug);
+  const label = card?.id ?? cardSlug;
+  const triggerLabel = TRIGGER_LABELS[trigger] ?? trigger;
+  return `${describePlayer(controllerIndex)}'s ${label} triggered (${triggerLabel}).`;
+}
+
+const TRIGGER_LABELS: Record<string, string> = {
+  CARD_DRAWN: "on draw",
+  CARD_DISCARDED: "on discard",
+  DAMAGE_DEALT: "on damage dealt",
+  ATTACK_STARTED: "on attack",
+  ITEM_ENTERED: "an Item entered",
+  ITEM_PLAYED: "an Item was played",
+  SPELL_PLAYED: "a Spell was played",
+  TURN_STARTED: "on turn start",
+  TURN_ENDED: "on turn end",
+};
 
 // Board-wide dispatch for ongoing "whenever" triggers — scans every
 // permanent already on either battlefield (for ITEM_ENTERED, excluding the
@@ -980,6 +1019,7 @@ function dispatchEvent(
           const min = ability.condition?.minAmount;
           if (min !== undefined && (payload.amount ?? 0) < min) continue;
         }
+        state = { ...state, log: [...state.log, describeTrigger(ownerIndex, card.slug, event, cardsById)] };
         let previousTarget: string | null = null;
         for (const effect of ability.effects) {
           const result = applyEffect(

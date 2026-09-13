@@ -173,6 +173,12 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
     visible.players[1].spriteInstanceId,
   ]);
 
+  const botIndex = match.players.findIndex((p) => p.isBot);
+  const isBotTurn =
+    botIndex !== -1 &&
+    ((state.pendingCombat === null && state.activePlayerIndex === botIndex) ||
+      state.pendingCombat?.defendingPlayerIndex === botIndex);
+
   return (
     <Battlefield
       matchId={match.id}
@@ -180,6 +186,7 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
       cardsById={Object.fromEntries(cardsById)}
       spritesById={Object.fromEntries(spritesById)}
       legalActions={legalActions}
+      isBotTurn={isBotTurn}
       youUsername={session.user.username}
       opponentUsername={opponentUsername}
     />

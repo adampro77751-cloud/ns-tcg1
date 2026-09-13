@@ -25,7 +25,7 @@ import {
   activateTimeBomb as engActivateTimeBomb,
   activateStarDrop as engActivateStarDrop,
 } from "@/lib/digital-engine/engine";
-import { runBotTurn, runBotDefense } from "@/lib/digital-engine/bot";
+import { runBotStep, runBotDefense } from "@/lib/digital-engine/bot";
 import type { DigitalGameState, EngineCard } from "@/lib/digital-engine/types";
 import { IllegalActionError } from "@/lib/digital-engine/types";
 import type { SpriteEngineData } from "@/lib/digital-engine/sprite-abilities";
@@ -451,8 +451,11 @@ async function loadSpritesById(state: DigitalGameState) {
 // Runs after any human action: resolves a bot defense first if the bot is
 // the one being attacked (defending isn't gated by whose turn it is), then
 // — only if it's now genuinely the bot's own turn with nothing pending —
-// drives the bot's full turn through the exact same engine functions a
-// human action uses.
+// takes exactly ONE bot action, not its whole turn. The rest of the bot's
+// turn is driven one visible tick at a time by advanceBotTurnAction below
+// (see the client-side BotTurnDriver), so a human watching sees each of
+// the bot's actions land separately instead of an entire turn resolving
+// instantly the moment it becomes the bot's turn.
 async function runBotIfNeeded(
   state: DigitalGameState,
   botIndex: 0 | 1 | null,
@@ -468,7 +471,28 @@ async function runBotIfNeeded(
     return state;
   }
 
-  return runBotTurn(state, botIndex, cardsById, spritesById);
+  return runBotStep(state, botIndex, cardsById, spritesById);
+}
+
+// One visible "tick" of the bot's turn — called repeatedly by the client
+// (BotTurnDriver), paced with a short delay between calls, so the bot's
+// actions appear one at a time instead of its whole turn resolving the
+// instant it starts. Resolves a pending defense first (not gated by whose
+// turn it is), otherwise takes exactly one normal action. A no-op if
+// there's nothing for the bot to do right now.
+export async function advanceBotTurnAction(matchId: string) {
+  const session = await requireAdminAction();
+  const match = await loadMatchForAction(matchId, session.user.id);
+  if (match.botIndex === null) return;
+
+  const cardsById = await loadCardsById(match.state);
+  const spritesById = await loadSpritesById(match.state);
+  const next = await runBotIfNeeded(match.state, match.botIndex, cardsById, spritesById);
+
+  if (next !== match.state) {
+    await persistState(matchId, next);
+    revalidatePath(`/play/digital/${matchId}`);
+  }
 }
 
 async function runGameAction(

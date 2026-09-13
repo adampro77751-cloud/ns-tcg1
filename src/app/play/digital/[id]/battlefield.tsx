@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   playDigitalItemAction,
   playDigitalSpellAction,
@@ -15,6 +16,7 @@ import type { VisibleGameState } from "@/lib/digital-engine/engine";
 import type { LegalAction } from "@/lib/digital-engine/engine";
 import { getRequiredTarget, type TargetRequirement } from "@/lib/digital-engine/abilities";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { BotTurnDriver } from "./bot-turn-driver";
 
 type CardDisplay = {
   id: string;
@@ -39,6 +41,8 @@ type SpriteDisplay = {
 
 type PlayFormAction = (formData: FormData) => void | Promise<void>;
 
+type PendingPlay = { instanceId: string; action: PlayFormAction; requirement: TargetRequirement };
+
 const CARD_SIZE = "w-24 sm:w-28 md:w-32";
 const CARD_SIZE_FULLSCREEN = "w-32 sm:w-40 md:w-48 lg:w-56";
 
@@ -48,12 +52,16 @@ function CardFace({
   onEnlarge,
   large,
   tired,
+  selectable,
+  onSelect,
 }: {
   cardId: string;
   cardsById: Record<string, CardDisplay>;
   onEnlarge: (card: CardDisplay) => void;
   large?: boolean;
   tired?: boolean;
+  selectable?: boolean;
+  onSelect?: () => void;
 }) {
   const size = large ? CARD_SIZE_FULLSCREEN : CARD_SIZE;
   const card = cardsById[cardId];
@@ -62,12 +70,16 @@ function CardFace({
     <div className="relative">
       <button
         type="button"
-        onClick={() => onEnlarge(card)}
+        onClick={selectable && onSelect ? onSelect : () => onEnlarge(card)}
         className={`block aspect-[5/7] ${size} overflow-hidden rounded-lg border-2 bg-white shadow-lg transition hover:scale-105 ${
-          tired ? "border-slate-400" : "border-sky-300"
+          selectable
+            ? "border-emerald-400 ring-4 ring-emerald-300 animate-pulse"
+            : tired
+              ? "border-slate-400"
+              : "border-sky-300"
         }`}
-        style={tired ? { transform: "rotate(20deg)" } : undefined}
-        title={card.name}
+        style={tired && !selectable ? { transform: "rotate(20deg)" } : undefined}
+        title={selectable ? `Target ${card.name}` : card.name}
       >
         {card.image ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -78,7 +90,7 @@ function CardFace({
           </span>
         )}
       </button>
-      {tired && (
+      {tired && !selectable && (
         <span className="absolute -top-1.5 -right-1.5 rounded-full border border-white bg-slate-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
           TIRED
         </span>
@@ -163,6 +175,7 @@ export function Battlefield({
   cardsById,
   spritesById,
   legalActions,
+  isBotTurn,
   youUsername,
   opponentUsername,
 }: {
@@ -171,12 +184,14 @@ export function Battlefield({
   cardsById: Record<string, CardDisplay>;
   spritesById: Record<string, SpriteDisplay>;
   legalActions: LegalAction[];
+  isBotTurn: boolean;
   youUsername: string;
   opponentUsername: string;
 }) {
+  const router = useRouter();
   const [enlarged, setEnlarged] = useState<CardDisplay | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [targetPickerInstanceId, setTargetPickerInstanceId] = useState<string | null>(null);
+  const [pendingPlay, setPendingPlay] = useState<PendingPlay | null>(null);
   const [openDiscard, setOpenDiscard] = useState<0 | 1 | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -230,27 +245,55 @@ export function Battlefield({
   const canChooseNoDefender = legalActions.some((a) => a.type === "NO_DEFENDER");
   const canEndTurn = legalActions.some((a) => a.type === "END_TURN");
 
+  // Cards' own real DB ids get embedded in log lines written server-side
+  // (see engine.ts) instead of names, since the engine never carries
+  // display names — this substitutes them back in for reading, using the
+  // same cardsById the rest of this component already has.
+  function humanizeLog(line: string): string {
+    let out = line;
+    for (const card of Object.values(cardsById)) {
+      if (out.includes(card.id)) out = out.split(card.id).join(card.name);
+    }
+    return out;
+  }
+
   // Some cards' ON_PLAY effects need a real target — a player, or an Item
   // on either battlefield — rather than the server auto-picking one. See
   // getRequiredTarget (abilities.ts): only ON_PLAY effects get a picker;
   // every other trigger still auto-resolves (no natural moment for a UI
   // prompt mid-resolution of some other action).
+  //
+  // Targeting is click-driven, not a dropdown: clicking "Play" arms
+  // `pendingPlay`, which highlights every legal target directly on the
+  // battlefield (a card, or a player's health total) — the next click on
+  // one of those submits the play with that target.
   function targetCandidates(requirement: TargetRequirement) {
-    if (!requirement) return { players: [], items: [] as { instanceId: string; cardId: string; label: string }[] };
-    const ownItems = you.battlefield.map((c) => ({ instanceId: c.instanceId, cardId: c.cardId }));
-    const oppItems = opponent.battlefield.map((c) => ({ instanceId: c.instanceId, cardId: c.cardId }));
+    if (!requirement) return { playerTargetIds: new Set<string>(), itemInstanceIds: new Set<string>() };
+    const ownItemIds = you.battlefield.map((c) => c.instanceId);
+    const oppItemIds = opponent.battlefield.map((c) => c.instanceId);
     if (requirement.kind === "ANY_TARGET") {
       return {
-        players: [
-          { targetId: `player:${visible.viewerIndex}`, label: `${youUsername} (you)` },
-          { targetId: `player:${opponentIndex}`, label: opponentUsername },
-        ],
-        items: [...ownItems, ...oppItems],
+        playerTargetIds: new Set([`player:${visible.viewerIndex}`, `player:${opponentIndex}`]),
+        itemInstanceIds: new Set([...ownItemIds, ...oppItemIds]),
       };
     }
-    if (requirement.scope === "OWN_ITEM") return { players: [], items: ownItems };
-    if (requirement.scope === "OPPONENT_ITEM") return { players: [], items: oppItems };
-    return { players: [], items: [...ownItems, ...oppItems] };
+    if (requirement.scope === "OWN_ITEM") return { playerTargetIds: new Set<string>(), itemInstanceIds: new Set(ownItemIds) };
+    if (requirement.scope === "OPPONENT_ITEM") return { playerTargetIds: new Set<string>(), itemInstanceIds: new Set(oppItemIds) };
+    return { playerTargetIds: new Set<string>(), itemInstanceIds: new Set([...ownItemIds, ...oppItemIds]) };
+  }
+
+  const pendingCandidates = pendingPlay ? targetCandidates(pendingPlay.requirement) : null;
+
+  async function submitTarget(targetId: string) {
+    if (!pendingPlay) return;
+    const { instanceId, action } = pendingPlay;
+    setPendingPlay(null);
+    const formData = new FormData();
+    formData.set("matchId", matchId);
+    formData.set("instanceId", instanceId);
+    formData.set("targetId", targetId);
+    await action(formData);
+    router.refresh();
   }
 
   function renderPlayControl(instanceId: string, cardId: string, action: PlayFormAction) {
@@ -270,63 +313,36 @@ export function Battlefield({
       );
     }
 
-    const isOpen = targetPickerInstanceId === instanceId;
-    const { players, items } = targetCandidates(requirement);
-
+    const isPicking = pendingPlay?.instanceId === instanceId;
     return (
-      <div className="relative">
+      <button
+        type="button"
+        onClick={() => setPendingPlay(isPicking ? null : { instanceId, action, requirement })}
+        className={`rounded px-3 py-1 text-xs font-bold text-white ${
+          isPicking ? "bg-slate-500 hover:bg-slate-600" : "bg-violet-600 hover:bg-violet-700"
+        }`}
+      >
+        {isPicking ? "Cancel targeting" : "Play (pick target)"}
+      </button>
+    );
+  }
+
+  function healthBadge(playerIndexForBadge: 0 | 1, health: number, sizeClasses: string) {
+    const targetId = `player:${playerIndexForBadge}`;
+    const isSelectable = Boolean(pendingCandidates?.playerTargetIds.has(targetId));
+    if (isSelectable) {
+      return (
         <button
           type="button"
-          onClick={() => setTargetPickerInstanceId(isOpen ? null : instanceId)}
-          className="rounded bg-violet-600 px-3 py-1 text-xs font-bold text-white hover:bg-violet-700"
+          onClick={() => submitTarget(targetId)}
+          className={`animate-pulse rounded-full border-2 border-emerald-400 bg-red-100 font-bold text-red-700 ring-4 ring-emerald-300 ${sizeClasses}`}
+          title="Target this player"
         >
-          Play (choose target)
+          ❤ {health}
         </button>
-        {isOpen && (
-          <div className="absolute left-1/2 top-full z-40 mt-2 w-64 -translate-x-1/2 rounded-xl border border-violet-200 bg-white p-3 text-left shadow-2xl">
-            <p className="mb-2 text-xs font-semibold text-slate-600">Choose a target:</p>
-            <div className="flex flex-col gap-1.5">
-              {players.map((p) => (
-                <form key={p.targetId} action={action}>
-                  <input type="hidden" name="matchId" value={matchId} />
-                  <input type="hidden" name="instanceId" value={instanceId} />
-                  <input type="hidden" name="targetId" value={p.targetId} />
-                  <button
-                    type="submit"
-                    className="w-full rounded border border-sky-200 bg-sky-50 px-2 py-1.5 text-left text-xs font-semibold text-slate-700 hover:bg-sky-100"
-                  >
-                    {p.label}
-                  </button>
-                </form>
-              ))}
-              {items.map((it) => (
-                <form key={it.instanceId} action={action}>
-                  <input type="hidden" name="matchId" value={matchId} />
-                  <input type="hidden" name="instanceId" value={instanceId} />
-                  <input type="hidden" name="targetId" value={`item:${it.instanceId}`} />
-                  <button
-                    type="submit"
-                    className="w-full rounded border border-sky-200 bg-white px-2 py-1.5 text-left text-xs font-semibold text-slate-700 hover:bg-sky-50"
-                  >
-                    {cardsById[it.cardId]?.name ?? "Unknown card"}
-                  </button>
-                </form>
-              ))}
-              {players.length === 0 && items.length === 0 && (
-                <p className="text-xs text-slate-400">No legal targets available.</p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setTargetPickerInstanceId(null)}
-              className="mt-2 w-full rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
-    );
+      );
+    }
+    return <span className={`rounded-full bg-red-100 font-bold text-red-700 ${sizeClasses}`}>❤ {health}</span>;
   }
 
   function renderSideRail(side: "you" | "opponent") {
@@ -360,6 +376,7 @@ export function Battlefield({
     >
       <div className={isFullscreen ? "mx-auto max-w-[1600px]" : "mx-auto max-w-5xl"}>
         <AutoRefresh intervalMs={3000} />
+        <BotTurnDriver matchId={matchId} isBotTurn={isBotTurn} />
 
         <div className="flex items-center justify-between">
           <div
@@ -386,6 +403,19 @@ export function Battlefield({
         {visible.phase === "COMPLETE" && (
           <div className="mt-4 rounded border border-green-200 bg-green-50 px-4 py-3 text-center text-sm text-green-800">
             Match over — refresh to see the result.
+          </div>
+        )}
+
+        {pendingPlay && (
+          <div className="mt-4 flex items-center justify-between rounded border-2 border-emerald-400 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+            <span>Choose a target — click a highlighted card or health total on the battlefield.</span>
+            <button
+              type="button"
+              onClick={() => setPendingPlay(null)}
+              className="rounded border border-emerald-400 bg-white px-3 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+            >
+              Cancel
+            </button>
           </div>
         )}
 
@@ -432,13 +462,7 @@ export function Battlefield({
         <div className={`mt-4 rounded-2xl border border-sky-200 bg-white/95 shadow-xl backdrop-blur-sm ${isFullscreen ? "p-8" : "p-5"}`}>
           <div className="flex items-center justify-between">
             <span className={isFullscreen ? "text-2xl font-bold" : "text-lg font-bold"}>{opponentUsername}</span>
-            <span
-              className={`rounded-full bg-red-100 font-bold text-red-700 ${
-                isFullscreen ? "px-6 py-2 text-xl" : "px-4 py-1.5 text-base"
-              }`}
-            >
-              ❤ {opponent.health}
-            </span>
+            {healthBadge(opponentIndex, opponent.health, isFullscreen ? "px-6 py-2 text-xl" : "px-4 py-1.5 text-base")}
           </div>
           {opponent.handRevealedToOpponent && (
             <p className="mt-2 text-xs font-semibold text-amber-700">
@@ -459,7 +483,16 @@ export function Battlefield({
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
             {opponent.battlefield.map((c) => (
-              <CardFace key={c.instanceId} cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} tired={c.tired} />
+              <CardFace
+                key={c.instanceId}
+                cardId={c.cardId}
+                cardsById={cardsById}
+                onEnlarge={setEnlarged}
+                large={isFullscreen}
+                tired={c.tired}
+                selectable={pendingCandidates?.itemInstanceIds.has(c.instanceId)}
+                onSelect={() => submitTarget(`item:${c.instanceId}`)}
+              />
             ))}
             {opponent.battlefield.length === 0 && (
               <span className="text-xs text-slate-400">Empty battlefield</span>
@@ -479,7 +512,15 @@ export function Battlefield({
           <div className="flex flex-wrap items-center gap-3">
             {you.battlefield.map((c) => (
               <div key={c.instanceId} className="flex flex-col items-center gap-1.5">
-                <CardFace cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} tired={c.tired} />
+                <CardFace
+                  cardId={c.cardId}
+                  cardsById={cardsById}
+                  onEnlarge={setEnlarged}
+                  large={isFullscreen}
+                  tired={c.tired}
+                  selectable={pendingCandidates?.itemInstanceIds.has(c.instanceId)}
+                  onSelect={() => submitTarget(`item:${c.instanceId}`)}
+                />
                 {attackableInstanceIds.has(c.instanceId) && (
                   <form action={attackDigitalAction}>
                     <input type="hidden" name="matchId" value={matchId} />
@@ -556,13 +597,7 @@ export function Battlefield({
 
           <div className="mt-5 flex items-center justify-between">
             <span className={isFullscreen ? "text-2xl font-bold" : "text-lg font-bold"}>{youUsername} (you)</span>
-            <span
-              className={`rounded-full bg-red-100 font-bold text-red-700 ${
-                isFullscreen ? "px-6 py-2 text-xl" : "px-4 py-1.5 text-base"
-              }`}
-            >
-              ❤ {you.health}
-            </span>
+            {healthBadge(visible.viewerIndex, you.health, isFullscreen ? "px-6 py-2 text-xl" : "px-4 py-1.5 text-base")}
           </div>
 
           {renderSideRail("you")}
@@ -600,11 +635,13 @@ export function Battlefield({
           </form>
         </div>
 
-        <details className="mt-6 rounded border border-sky-200 bg-white/90 p-3 text-xs text-slate-600 shadow">
+        <details className="mt-6 rounded border border-sky-200 bg-white/90 p-3 text-xs text-slate-600 shadow" open>
           <summary className="cursor-pointer font-semibold">Match log</summary>
           <ul className="mt-2 flex flex-col gap-0.5">
             {visible.log.map((line, i) => (
-              <li key={i}>{line}</li>
+              <li key={i} className={i === visible.log.length - 1 ? "font-semibold text-violet-700" : undefined}>
+                {humanizeLog(line)}
+              </li>
             ))}
           </ul>
         </details>

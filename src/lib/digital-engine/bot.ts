@@ -86,11 +86,51 @@ export function runBotDefense(
   return resolveDefense(state, botIndex, defenderInstanceId, cardsById, spritesById);
 }
 
-// Drives one full bot turn by repeatedly asking the provider for the next
-// action and applying it through the real engine functions, stopping at
-// END_TURN, a win, a PENDING COMBAT the bot itself declared (must wait for
-// the opponent to defend before doing anything else), or a safety cap (in
-// case a future provider misbehaves).
+// Performs exactly ONE bot decision — one card play, one attack
+// declaration, or ending the turn — through the exact same validated
+// engine functions a human action uses. This is the primitive the visible,
+// paced bot-turn driver (advanceBotTurnAction) calls once per tick, so a
+// human watching can see each action land separately instead of a whole
+// turn resolving in one instantaneous jump. A no-op (returns `state`
+// unchanged) if it isn't actually the bot's turn to act right now (not
+// its turn, match over, or a combat is pending).
+export function runBotStep(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  cardsById: Map<string, EngineCard>,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
+  provider: BotDecisionProvider = simpleRulesBot,
+): DigitalGameState {
+  if (state.phase === "COMPLETE" || state.activePlayerIndex !== playerIndex || state.pendingCombat) {
+    return state;
+  }
+
+  const legalActions = getLegalActions(state, playerIndex, cardsById);
+  const action = provider.chooseAction(state, playerIndex, legalActions, cardsById);
+
+  if (action.type === "END_TURN") {
+    return endTurn(state, cardsById, spritesById);
+  }
+  if (action.type === "PLAY_ITEM") {
+    return playItem(state, playerIndex, action.instanceId, cardsById, undefined, spritesById);
+  }
+  if (action.type === "PLAY_SPELL") {
+    return playSpell(state, playerIndex, action.instanceId, cardsById, undefined, spritesById);
+  }
+  if (action.type === "ATTACK") {
+    return declareAttack(state, playerIndex, action.instanceId, cardsById, spritesById);
+  }
+  return state;
+}
+
+// Drives a full bot turn instantly by repeatedly calling runBotStep,
+// stopping at END_TURN, a win, a PENDING COMBAT the bot itself declared
+// (must wait for the opponent to defend before doing anything else), or a
+// safety cap (in case a future provider misbehaves). Used where a single
+// atomic result is needed (tests, and as the eventual safety net if the
+// paced driver is ever unavailable) — the normal in-game path is the
+// paced, one-step-per-tick driver instead, so a human can actually see
+// what the bot is doing.
 export function runBotTurn(
   initialState: DigitalGameState,
   playerIndex: 0 | 1,
@@ -102,27 +142,12 @@ export function runBotTurn(
   const MAX_STEPS = 50;
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    if (state.phase === "COMPLETE" || state.activePlayerIndex !== playerIndex) {
+    if (state.phase === "COMPLETE" || state.activePlayerIndex !== playerIndex || state.pendingCombat) {
       return state;
     }
-    // The bot just declared an attack against an opponent with a legal
-    // defender — play pauses here until the opponent (human or bot, via
-    // runBotDefense) resolves it. Nothing else to do this call.
-    if (state.pendingCombat) return state;
-
-    const legalActions = getLegalActions(state, playerIndex, cardsById);
-    const action = provider.chooseAction(state, playerIndex, legalActions, cardsById);
-
-    if (action.type === "END_TURN") {
-      return endTurn(state, cardsById, spritesById);
-    }
-    if (action.type === "PLAY_ITEM") {
-      state = playItem(state, playerIndex, action.instanceId, cardsById, undefined, spritesById);
-    } else if (action.type === "PLAY_SPELL") {
-      state = playSpell(state, playerIndex, action.instanceId, cardsById, undefined, spritesById);
-    } else if (action.type === "ATTACK") {
-      state = declareAttack(state, playerIndex, action.instanceId, cardsById, spritesById);
-    }
+    const before = state;
+    state = runBotStep(state, playerIndex, cardsById, spritesById, provider);
+    if (state === before) return state; // no-op safety valve
   }
 
   // Safety net — force the turn to end rather than looping forever.
