@@ -5,6 +5,8 @@ import {
   playItem,
   playSpell,
   declareAttack,
+  resolveDefense,
+  previewDefenseDamage,
   endTurn,
   concede,
   getLegalActions,
@@ -14,7 +16,8 @@ import {
   activateStarDrop,
 } from "./engine";
 import { getRequiredTarget } from "./abilities";
-import { simpleRulesBot, runBotTurn } from "./bot";
+import { simpleRulesBot, runBotTurn, chooseBotDefender, runBotDefense } from "./bot";
+import { getSpriteTopicBonus, type SpriteEngineData } from "./sprite-abilities";
 import { IllegalActionError } from "./types";
 import type { DigitalGameState, EngineCard } from "./types";
 
@@ -181,6 +184,12 @@ describe("combat / health", () => {
     const attackerInstance = state.players[0].battlefield[0];
     const before = state.players[1].health;
     state = declareAttack(state, 0, attackerInstance.instanceId, localCards);
+    // A legal (untired) defender exists, so the attack now waits for
+    // player 1 to choose a defender rather than resolving immediately.
+    expect(state.pendingCombat).not.toBeNull();
+    const defenderInstance = state.players[1].battlefield[0];
+    state = resolveDefense(state, 1, defenderInstance.instanceId, localCards);
+    expect(state.pendingCombat).toBeNull();
     expect(state.players[1].health).toBe(before - (ITEM_STRONG.attack! - fastDefender.defence!));
   });
 
@@ -989,5 +998,286 @@ describe("player-chosen targets", () => {
     expect(state.players[1].battlefield.map((c) => c.instanceId)).not.toContain("target-1");
     expect(state.players[1].discard.map((c) => c.instanceId)).toContain("target-1");
     expect(state.players[1].health).toBe(500); // health untouched — the Item absorbed it, not the player
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pending combat / real defending — declareAttack now waits for the
+// defending player to choose a defender (or explicitly take the attack)
+// whenever a legal defender exists, instead of auto-picking one.
+// ---------------------------------------------------------------------------
+
+describe("pending combat / defending", () => {
+  it("declareAttack sets pendingCombat when the defender has an untired Item, instead of resolving immediately", () => {
+    let state = newGame();
+    const attacker = state.players[0].hand.find((c) => c.cardId === ITEM_STRONG.id)!;
+    state = playItem(state, 0, attacker.instanceId, cardsById);
+    state = endTurn(state);
+    const defenderCard = state.players[1].hand.find((c) => c.cardId === ITEM_WEAK.id)!;
+    state = playItem(state, 1, defenderCard.instanceId, cardsById);
+    state = endTurn(state); // back to player 0
+
+    const attackerInstance = state.players[0].battlefield[0];
+    const healthBefore = state.players[1].health;
+    state = declareAttack(state, 0, attackerInstance.instanceId, cardsById);
+
+    expect(state.pendingCombat).not.toBeNull();
+    expect(state.pendingCombat!.attackingPlayerIndex).toBe(0);
+    expect(state.pendingCombat!.defendingPlayerIndex).toBe(1);
+    expect(state.players[1].health).toBe(healthBefore); // untouched — no damage yet
+  });
+
+  it("getLegalActions offers DEFEND/NO_DEFENDER only to the defending player, and nothing to the attacker", () => {
+    let state = newGame();
+    const attacker = state.players[0].hand.find((c) => c.cardId === ITEM_STRONG.id)!;
+    state = playItem(state, 0, attacker.instanceId, cardsById);
+    state = endTurn(state);
+    const defenderCard = state.players[1].hand.find((c) => c.cardId === ITEM_WEAK.id)!;
+    state = playItem(state, 1, defenderCard.instanceId, cardsById);
+    state = endTurn(state);
+    state = declareAttack(state, 0, state.players[0].battlefield[0].instanceId, cardsById);
+
+    const attackerLegal = getLegalActions(state, 0, cardsById);
+    expect(attackerLegal).toEqual([]);
+
+    const defenderLegal = getLegalActions(state, 1, cardsById);
+    expect(defenderLegal.some((a) => a.type === "DEFEND")).toBe(true);
+    expect(defenderLegal.some((a) => a.type === "NO_DEFENDER")).toBe(true);
+    expect(defenderLegal.some((a) => a.type === "END_TURN")).toBe(false);
+  });
+
+  it("the attacker cannot act while combat is pending (requireNoPendingCombat)", () => {
+    let state = newGame();
+    const attacker = state.players[0].hand.find((c) => c.cardId === ITEM_STRONG.id)!;
+    state = playItem(state, 0, attacker.instanceId, cardsById);
+    state = endTurn(state);
+    const defenderCard = state.players[1].hand.find((c) => c.cardId === ITEM_WEAK.id)!;
+    state = playItem(state, 1, defenderCard.instanceId, cardsById);
+    state = endTurn(state);
+    state = declareAttack(state, 0, state.players[0].battlefield[0].instanceId, cardsById);
+
+    expect(() => endTurn(state, cardsById)).toThrow(IllegalActionError);
+    expect(() => declareAttack(state, 0, state.players[0].battlefield[0].instanceId, cardsById)).toThrow(
+      IllegalActionError,
+    );
+  });
+
+  it("resolveDefense with no defender deals full unmitigated damage", () => {
+    let state = newGame();
+    const attacker = state.players[0].hand.find((c) => c.cardId === ITEM_STRONG.id)!;
+    state = playItem(state, 0, attacker.instanceId, cardsById);
+    state = endTurn(state);
+    const defenderCard = state.players[1].hand.find((c) => c.cardId === ITEM_WEAK.id)!;
+    state = playItem(state, 1, defenderCard.instanceId, cardsById);
+    state = endTurn(state);
+    const healthBefore = state.players[1].health;
+    state = declareAttack(state, 0, state.players[0].battlefield[0].instanceId, cardsById);
+
+    state = resolveDefense(state, 1, null, cardsById);
+    expect(state.pendingCombat).toBeNull();
+    expect(state.players[1].health).toBe(healthBefore - ITEM_STRONG.attack!);
+  });
+
+  it("resolveDefense rejects a tired or non-existent defender", () => {
+    let state = newGame();
+    const attacker = state.players[0].hand.find((c) => c.cardId === ITEM_STRONG.id)!;
+    state = playItem(state, 0, attacker.instanceId, cardsById);
+    state = endTurn(state);
+    const defenderCard = state.players[1].hand.find((c) => c.cardId === ITEM_WEAK.id)!;
+    state = playItem(state, 1, defenderCard.instanceId, cardsById);
+    state = endTurn(state);
+    state = declareAttack(state, 0, state.players[0].battlefield[0].instanceId, cardsById);
+
+    expect(() => resolveDefense(state, 1, "no-such-instance", cardsById)).toThrow(IllegalActionError);
+  });
+
+  it("resolveDefense rejects a request from anyone but the defending player", () => {
+    let state = newGame();
+    const attacker = state.players[0].hand.find((c) => c.cardId === ITEM_STRONG.id)!;
+    state = playItem(state, 0, attacker.instanceId, cardsById);
+    state = endTurn(state);
+    const defenderCard = state.players[1].hand.find((c) => c.cardId === ITEM_WEAK.id)!;
+    state = playItem(state, 1, defenderCard.instanceId, cardsById);
+    state = endTurn(state);
+    state = declareAttack(state, 0, state.players[0].battlefield[0].instanceId, cardsById);
+
+    expect(() => resolveDefense(state, 0, null, cardsById)).toThrow(IllegalActionError);
+  });
+
+  it("pending combat round-trips through JSON unchanged (survives a reload)", () => {
+    let state = newGame();
+    const attacker = state.players[0].hand.find((c) => c.cardId === ITEM_STRONG.id)!;
+    state = playItem(state, 0, attacker.instanceId, cardsById);
+    state = endTurn(state);
+    const defenderCard = state.players[1].hand.find((c) => c.cardId === ITEM_WEAK.id)!;
+    state = playItem(state, 1, defenderCard.instanceId, cardsById);
+    state = endTurn(state);
+    state = declareAttack(state, 0, state.players[0].battlefield[0].instanceId, cardsById);
+
+    const roundTripped = JSON.parse(JSON.stringify(state)) as DigitalGameState;
+    expect(roundTripped.pendingCombat).toEqual(state.pendingCombat);
+  });
+
+  it("chooseBotDefender picks the defender that minimizes damage, and runBotDefense applies it", () => {
+    const strongDefender: EngineCard = { id: "strong-def", slug: "strong-def", type: "Item", attack: 5, defence: 60, speed: 99 };
+    const cards = new Map<string, EngineCard>([
+      [ITEM_STRONG.id, ITEM_STRONG],
+      [ITEM_WEAK.id, ITEM_WEAK],
+      [strongDefender.id, strongDefender],
+    ]);
+    let state = createGameState({
+      matchId: "bot-defense",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_STRONG.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = playItem(state, 0, state.players[0].hand[0].instanceId, cards);
+    // Give player 1 (the bot) both a weak and a strong defender directly.
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "weak-def");
+    state = putOnBattlefield(state, 1, strongDefender.id, "strong-def-inst");
+    state = declareAttack(state, 0, state.players[0].battlefield[0].instanceId, cards);
+
+    const chosen = chooseBotDefender(state, cards, new Map());
+    expect(chosen).toBe("strong-def-inst"); // 60 Defence, speed 99 >= attacker's 20 -> blocks everything
+
+    const result = runBotDefense(state, 1, cards, new Map());
+    expect(result.pendingCombat).toBeNull();
+    expect(result.players[1].health).toBe(500); // fully blocked
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sprite abilities — the same lookup/bonus logic used for both the human's
+// and the bot's equipped Sprite. Only flat, always-on numeric bonuses on
+// existing engine primitives are implemented (see sprite-abilities.ts);
+// everything else is a documented, deliberate gap.
+// ---------------------------------------------------------------------------
+
+describe("sprite abilities", () => {
+  it("getSpriteTopicBonus takes the highest applicable level within a topic, not a cumulative sum", () => {
+    const level1: SpriteEngineData = { slug: "water-sprite", level: 1 };
+    const level2: SpriteEngineData = { slug: "water-sprite", level: 2 };
+    const level5: SpriteEngineData = { slug: "water-sprite", level: 5 };
+    expect(getSpriteTopicBonus(level1, "speed")).toBe(10);
+    expect(getSpriteTopicBonus(level2, "speed")).toBe(20); // not 30
+    expect(getSpriteTopicBonus(level5, "speed")).toBe(20); // still 20 — no higher "speed" entry past level 2
+  });
+
+  it("distinct topics combine once each is reached (Fire Sprite: damage-dealt AND attack)", () => {
+    const level5Fire: SpriteEngineData = { slug: "fire-sprite", level: 5 };
+    expect(getSpriteTopicBonus(level5Fire, "damageDealt")).toBe(20);
+    expect(getSpriteTopicBonus(level5Fire, "attack")).toBe(40);
+  });
+
+  it("an unimplemented Sprite ability (Cosmic) contributes no bonus at any level", () => {
+    const level5Cosmic: SpriteEngineData = { slug: "cosmic-sprite", level: 5 };
+    expect(getSpriteTopicBonus(level5Cosmic, "attack")).toBe(0);
+    expect(getSpriteTopicBonus(level5Cosmic, "speed")).toBe(0);
+  });
+
+  it("Air Sprite's Speed bonus lets a slower Item win the Speed check in combat", () => {
+    // Attacker speed 20 (ITEM_STRONG); defender base speed 5 (ITEM_WEAK)
+    // would normally lose the Speed check, but +20 from an equipped Air
+    // Sprite (Level 2) pushes it to 25, enough to win and apply Defence.
+    const cards = new Map<string, EngineCard>([[ITEM_STRONG.id, ITEM_STRONG], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["air-sprite-inst", { slug: "air-sprite", level: 2 }]]);
+    let state = createGameState({
+      matchId: "air-sprite",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_STRONG.id] },
+        { userId: "u2", spriteInstanceId: "air-sprite-inst", cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = playItem(state, 0, state.players[0].hand[0].instanceId, cards);
+    state = endTurn(state, cards);
+    state = playItem(state, 1, state.players[1].hand[0].instanceId, cards);
+    state = endTurn(state, cards);
+
+    const attackerInstance = state.players[0].battlefield[0];
+    const healthBefore = state.players[1].health;
+    state = declareAttack(state, 0, attackerInstance.instanceId, cards, spritesById);
+    state = resolveDefense(state, 1, state.players[1].battlefield[0].instanceId, cards, spritesById);
+
+    // Without the Sprite: full 50 damage (defender too slow). With it: 50 - 40(defence) = 10.
+    expect(state.players[1].health).toBe(healthBefore - (ITEM_STRONG.attack! - ITEM_WEAK.defence!));
+  });
+
+  it("Fire Sprite adds flat bonus damage whenever its controller deals damage to the opponent", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_STRONG.id, ITEM_STRONG], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["fire-inst", { slug: "fire-sprite", level: 1 }]]);
+    let state = createGameState({
+      matchId: "fire-sprite",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: "fire-inst", cardIds: [ITEM_STRONG.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = playItem(state, 0, state.players[0].hand[0].instanceId, cards);
+    const healthBefore = state.players[1].health;
+    // No legal defender on player 1's empty battlefield -> unopposed fast path.
+    state = declareAttack(state, 0, state.players[0].battlefield[0].instanceId, cards, spritesById);
+    expect(state.players[1].health).toBe(healthBefore - ITEM_STRONG.attack! - 10);
+  });
+
+  it("Angel Sprite adds flat bonus to the controller's own Health gains", () => {
+    const PARKER_SPRITE_TEST: EngineCard = { id: "parker-sprite", slug: "parker", type: "Spell", attack: null, defence: null, speed: null };
+    const cards = new Map<string, EngineCard>([[PARKER_SPRITE_TEST.id, PARKER_SPRITE_TEST], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["angel-inst", { slug: "angel-sprite", level: 2 }]]);
+    let state = createGameState({
+      matchId: "angel-sprite",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: "angel-inst", cardIds: [PARKER_SPRITE_TEST.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const parker = state.players[0].hand.find((c) => c.cardId === PARKER_SPRITE_TEST.id)!;
+    const healthBefore = state.players[0].health;
+    state = playSpell(state, 0, parker.instanceId, cards, "player:1", spritesById);
+    // Parker: "gain 100 health" + Angel L2's +20 = 120.
+    expect(state.players[0].health).toBe(healthBefore + 120);
+  });
+
+  it("Water Sprite Level 5 raises the per-turn Spell limit, like Biologist does for Items", () => {
+    const SPELL_A_TEST: EngineCard = { id: "spell-a-water", slug: "spell-a-water", type: "Spell", attack: null, defence: null, speed: null };
+    const SPELL_B_TEST: EngineCard = { id: "spell-b-water", slug: "spell-b-water", type: "Spell", attack: null, defence: null, speed: null };
+    const cards = new Map<string, EngineCard>([[SPELL_A_TEST.id, SPELL_A_TEST], [SPELL_B_TEST.id, SPELL_B_TEST]]);
+    const spritesById = new Map<string, SpriteEngineData>([["water-inst", { slug: "water-sprite", level: 5 }]]);
+    let state = createGameState({
+      matchId: "water-sprite",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 2,
+      players: [
+        { userId: "u1", spriteInstanceId: "water-inst", cardIds: [SPELL_A_TEST.id, SPELL_B_TEST.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const spellA = state.players[0].hand.find((c) => c.cardId === SPELL_A_TEST.id)!;
+    const spellB = state.players[0].hand.find((c) => c.cardId === SPELL_B_TEST.id)!;
+    state = playSpell(state, 0, spellA.instanceId, cards, undefined, spritesById);
+    expect(() => playSpell(state, 0, spellB.instanceId, cards, undefined, spritesById)).not.toThrow();
   });
 });

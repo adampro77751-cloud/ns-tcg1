@@ -12,20 +12,23 @@ import {
   snapshotDigitalDeck,
   expandSnapshotToCardIds,
   getCardsByIdMap,
+  getSpritesByIdMap,
 } from "@/lib/digital-play";
 import {
   createGameState,
   playItem as engPlayItem,
   playSpell as engPlaySpell,
   declareAttack as engDeclareAttack,
+  resolveDefense as engResolveDefense,
   endTurn as engEndTurn,
   concede as engConcede,
   activateTimeBomb as engActivateTimeBomb,
   activateStarDrop as engActivateStarDrop,
 } from "@/lib/digital-engine/engine";
-import { runBotTurn } from "@/lib/digital-engine/bot";
-import type { DigitalGameState } from "@/lib/digital-engine/types";
+import { runBotTurn, runBotDefense } from "@/lib/digital-engine/bot";
+import type { DigitalGameState, EngineCard } from "@/lib/digital-engine/types";
 import { IllegalActionError } from "@/lib/digital-engine/types";
+import type { SpriteEngineData } from "@/lib/digital-engine/sprite-abilities";
 
 export type DigitalFormState = { error: string | null };
 
@@ -59,15 +62,28 @@ export async function createBotMatchAction(
   const formatId = String(formData.get("formatId") ?? "");
   const deckId = String(formData.get("deckId") ?? "");
   const spriteInstanceIdInput = String(formData.get("spriteInstanceId") ?? "");
+  // The bot has no User account of its own, so its "own" deck/Sprite are
+  // just a second choice from the SAME admin tester's collection — real
+  // saved decks/Sprites via the existing systems, never fabricated ones.
+  const botDeckId = String(formData.get("botDeckId") ?? "");
+  const botSpriteInstanceIdInput = String(formData.get("botSpriteInstanceId") ?? "");
 
   let deck;
   let spriteInstanceId: string | null;
+  let botDeck;
+  let botSpriteInstanceId: string | null;
   try {
     deck = await requireOwnedLegalDeck(deckId, session.user.id);
     if (deck.formatId !== formatId) {
       return { error: "Choose a deck legal for the selected format." };
     }
     spriteInstanceId = await resolveOwnedSpriteInstance(spriteInstanceIdInput, session.user.id);
+
+    botDeck = await requireOwnedLegalDeck(botDeckId, session.user.id);
+    if (botDeck.formatId !== formatId) {
+      return { error: "Choose a Bot deck legal for the selected format." };
+    }
+    botSpriteInstanceId = await resolveOwnedSpriteInstance(botSpriteInstanceIdInput, session.user.id);
   } catch (err) {
     return { error: (err as Error).message };
   }
@@ -97,12 +113,19 @@ export async function createBotMatchAction(
           },
         });
         const bot = await tx.digitalMatchPlayer.create({
-          data: { matchId: match.id, userId: null, isBot: true, deckId: deck.id, ready: true },
+          data: {
+            matchId: match.id,
+            userId: null,
+            isBot: true,
+            deckId: botDeck.id,
+            spriteInstanceId: botSpriteInstanceId,
+            ready: true,
+          },
         });
         await snapshotDigitalDeck(tx, human.id, deck.id);
-        // V1 has no dedicated bot decks — the bot plays a separate snapshot
-        // of the SAME deck the human chose (see final report limitations).
-        await snapshotDigitalDeck(tx, bot.id, deck.id);
+        // The bot gets its OWN independently-chosen deck snapshot — never
+        // the human's cards/hand.
+        await snapshotDigitalDeck(tx, bot.id, botDeck.id);
 
         const [humanSnap, botSnap] = await Promise.all([
           tx.digitalMatchPlayerDeckCard.findMany({
@@ -134,7 +157,11 @@ export async function createBotMatchAction(
               spriteInstanceId,
               cardIds: expandSnapshotToCardIds(humanSnap),
             },
-            { userId: null, spriteInstanceId: null, cardIds: expandSnapshotToCardIds(botSnap) },
+            {
+              userId: null,
+              spriteInstanceId: botSpriteInstanceId,
+              cardIds: expandSnapshotToCardIds(botSnap),
+            },
           ],
         });
 
@@ -400,14 +427,8 @@ async function persistState(matchId: string, state: DigitalGameState) {
   });
 }
 
-// Runs after any human action: if it's now the bot's turn and the match
-// isn't over, drive the bot's full turn through the exact same engine
-// functions a human action uses.
-async function runBotIfNeeded(state: DigitalGameState, botIndex: 0 | 1 | null) {
-  if (botIndex === null) return state;
-  if (state.phase === "COMPLETE" || state.activePlayerIndex !== botIndex) return state;
-
-  const allCardIds = [
+function allCardIdsIn(state: DigitalGameState): string[] {
+  return [
     ...state.players[0].deck,
     ...state.players[0].hand,
     ...state.players[0].battlefield,
@@ -417,35 +438,59 @@ async function runBotIfNeeded(state: DigitalGameState, botIndex: 0 | 1 | null) {
     ...state.players[1].battlefield,
     ...state.players[1].discard,
   ].map((c) => c.cardId);
-  const cardsById = await getCardsByIdMap(allCardIds);
-
-  return runBotTurn(state, botIndex, cardsById);
 }
 
 async function loadCardsById(state: DigitalGameState) {
-  const allCardIds = [
-    ...state.players[0].deck,
-    ...state.players[0].hand,
-    ...state.players[0].battlefield,
-    ...state.players[0].discard,
-    ...state.players[1].deck,
-    ...state.players[1].hand,
-    ...state.players[1].battlefield,
-    ...state.players[1].discard,
-  ].map((c) => c.cardId);
-  return getCardsByIdMap(allCardIds);
+  return getCardsByIdMap(allCardIdsIn(state));
+}
+
+async function loadSpritesById(state: DigitalGameState) {
+  return getSpritesByIdMap([state.players[0].spriteInstanceId, state.players[1].spriteInstanceId]);
+}
+
+// Runs after any human action: resolves a bot defense first if the bot is
+// the one being attacked (defending isn't gated by whose turn it is), then
+// — only if it's now genuinely the bot's own turn with nothing pending —
+// drives the bot's full turn through the exact same engine functions a
+// human action uses.
+async function runBotIfNeeded(
+  state: DigitalGameState,
+  botIndex: 0 | 1 | null,
+  cardsById: Map<string, EngineCard>,
+  spritesById: Map<string, SpriteEngineData>,
+) {
+  if (botIndex === null || state.phase === "COMPLETE") return state;
+
+  if (state.pendingCombat && state.pendingCombat.defendingPlayerIndex === botIndex) {
+    state = runBotDefense(state, botIndex, cardsById, spritesById);
+  }
+  if (state.phase === "COMPLETE" || state.pendingCombat || state.activePlayerIndex !== botIndex) {
+    return state;
+  }
+
+  return runBotTurn(state, botIndex, cardsById, spritesById);
 }
 
 async function runGameAction(
   matchId: string,
-  apply: (m: LoadedMatch, cardsById: Awaited<ReturnType<typeof getCardsByIdMap>>) => DigitalGameState,
+  apply: (
+    m: LoadedMatch,
+    cardsById: Map<string, EngineCard>,
+    spritesById: Map<string, SpriteEngineData>,
+  ) => DigitalGameState,
 ) {
   const session = await requireAdminAction();
   const match = await loadMatchForAction(matchId, session.user.id);
   const cardsById = await loadCardsById(match.state);
+  const spritesById = await loadSpritesById(match.state);
 
-  let next = apply(match, cardsById);
-  next = await runBotIfNeeded(next, match.botIndex);
+  let next = apply(match, cardsById, spritesById);
+  // The card/sprite pool can change shape after the action (a search
+  // effect could reveal nothing new, but a bot's own play might reference
+  // cards not yet in scope — reload defensively before driving the bot).
+  const nextCardsById = await loadCardsById(next);
+  const nextSpritesById = await loadSpritesById(next);
+  next = await runBotIfNeeded(next, match.botIndex, nextCardsById, nextSpritesById);
 
   await persistState(matchId, next);
   revalidatePath(`/play/digital/${matchId}`);
@@ -455,8 +500,8 @@ export async function playDigitalItemAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   const instanceId = String(formData.get("instanceId") ?? "");
   const targetId = formData.get("targetId");
-  await runGameAction(matchId, (m, cardsById) =>
-    engPlayItem(m.state, m.playerIndex, instanceId, cardsById, targetId ? String(targetId) : undefined),
+  await runGameAction(matchId, (m, cardsById, spritesById) =>
+    engPlayItem(m.state, m.playerIndex, instanceId, cardsById, targetId ? String(targetId) : undefined, spritesById),
   );
 }
 
@@ -464,22 +509,34 @@ export async function playDigitalSpellAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   const instanceId = String(formData.get("instanceId") ?? "");
   const targetId = formData.get("targetId");
-  await runGameAction(matchId, (m, cardsById) =>
-    engPlaySpell(m.state, m.playerIndex, instanceId, cardsById, targetId ? String(targetId) : undefined),
+  await runGameAction(matchId, (m, cardsById, spritesById) =>
+    engPlaySpell(m.state, m.playerIndex, instanceId, cardsById, targetId ? String(targetId) : undefined, spritesById),
   );
 }
 
 export async function attackDigitalAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   const instanceId = String(formData.get("instanceId") ?? "");
-  await runGameAction(matchId, (m, cardsById) =>
-    engDeclareAttack(m.state, m.playerIndex, instanceId, cardsById),
+  await runGameAction(matchId, (m, cardsById, spritesById) =>
+    engDeclareAttack(m.state, m.playerIndex, instanceId, cardsById, spritesById),
+  );
+}
+
+// The defending player's response to a pending attack: `defenderInstanceId`
+// is the instanceId of one of their own untired battlefield Items, or
+// omitted/empty to explicitly take the attack undefended ("no defender").
+export async function resolveDefenseAction(formData: FormData) {
+  const matchId = String(formData.get("matchId") ?? "");
+  const defenderInstanceIdRaw = formData.get("defenderInstanceId");
+  const defenderInstanceId = defenderInstanceIdRaw ? String(defenderInstanceIdRaw) : null;
+  await runGameAction(matchId, (m, cardsById, spritesById) =>
+    engResolveDefense(m.state, m.playerIndex, defenderInstanceId, cardsById, spritesById),
   );
 }
 
 export async function endDigitalTurnAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
-  await runGameAction(matchId, (m, cardsById) => engEndTurn(m.state, cardsById));
+  await runGameAction(matchId, (m, cardsById, spritesById) => engEndTurn(m.state, cardsById, spritesById));
 }
 
 export async function concedeDigitalMatchAction(formData: FormData) {
@@ -498,7 +555,7 @@ export async function activateTimeBombAction(formData: FormData) {
 export async function activateStarDropAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   const instanceId = String(formData.get("instanceId") ?? "");
-  await runGameAction(matchId, (m, cardsById) =>
-    engActivateStarDrop(m.state, m.playerIndex, instanceId, cardsById),
+  await runGameAction(matchId, (m, cardsById, spritesById) =>
+    engActivateStarDrop(m.state, m.playerIndex, instanceId, cardsById, Math.random, spritesById),
   );
 }

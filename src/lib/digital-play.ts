@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getDeckLegality } from "@/lib/decks";
 import type { EngineCard } from "@/lib/digital-engine/types";
+import type { SpriteEngineData } from "@/lib/digital-engine/sprite-abilities";
 
 export function getActiveFormats() {
   return prisma.format.findMany({
@@ -83,6 +84,43 @@ export async function getCardsByIdMap(cardIds: Iterable<string>): Promise<Map<st
     select: { id: true, slug: true, type: true, attack: true, defence: true, speed: true },
   });
   return new Map(cards.map((c) => [c.id, c]));
+}
+
+// The engine's own view of a Sprite (slug + level only) — everything
+// getSpriteTopicBonus (sprite-abilities.ts) needs, keyed by
+// SpriteInstance.id. Used by the SAME engine code path for both the human
+// and the bot's equipped Sprite.
+export async function getSpritesByIdMap(
+  spriteInstanceIds: Iterable<string | null>,
+): Promise<Map<string, SpriteEngineData>> {
+  const idList = Array.from(new Set(Array.from(spriteInstanceIds).filter((id): id is string => id !== null)));
+  if (idList.length === 0) return new Map();
+  const instances = await prisma.spriteInstance.findMany({
+    where: { id: { in: idList } },
+    select: { id: true, level: true, sprite: { select: { slug: true } } },
+  });
+  return new Map(instances.map((s) => [s.id, { slug: s.sprite.slug, level: s.level }]));
+}
+
+// Public-safe Sprite display info for the battlefield UI (name/image/level).
+export async function getSpriteDisplayMap(spriteInstanceIds: Iterable<string | null>) {
+  const idList = Array.from(new Set(Array.from(spriteInstanceIds).filter((id): id is string => id !== null)));
+  if (idList.length === 0) return new Map();
+  const instances = await prisma.spriteInstance.findMany({
+    where: { id: { in: idList } },
+    select: {
+      id: true,
+      name: true,
+      level: true,
+      sprite: { select: { name: true, image: true, rarity: true } },
+    },
+  });
+  return new Map(
+    instances.map((s) => [
+      s.id,
+      { id: s.id, name: s.name, level: s.level, spriteName: s.sprite.name, image: s.sprite.image, rarity: s.sprite.rarity },
+    ]),
+  );
 }
 
 // Public-safe card display info for the battlefield UI (name/image/etc).

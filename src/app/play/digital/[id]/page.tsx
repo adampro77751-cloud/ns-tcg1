@@ -2,7 +2,12 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireAdminPage } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { getDecksWithLegality, getOwnedSpriteOptions, getCardDisplayMap } from "@/lib/digital-play";
+import {
+  getDecksWithLegality,
+  getOwnedSpriteOptions,
+  getCardDisplayMap,
+  getSpriteDisplayMap,
+} from "@/lib/digital-play";
 import { getVisibleState, getLegalActions } from "@/lib/digital-engine/engine";
 import type { DigitalGameState } from "@/lib/digital-engine/types";
 import {
@@ -163,11 +168,17 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
     match.players.find((p) => p.userId !== session.user.id)?.user?.username ??
     (match.players.find((p) => p.isBot) ? "Bot" : "Opponent");
 
+  const spritesById = await getSpriteDisplayMap([
+    visible.players[0].spriteInstanceId,
+    visible.players[1].spriteInstanceId,
+  ]);
+
   return (
     <Battlefield
       matchId={match.id}
       visible={visible}
       cardsById={Object.fromEntries(cardsById)}
+      spritesById={Object.fromEntries(spritesById)}
       legalActions={legalActions}
       youUsername={session.user.username}
       opponentUsername={opponentUsername}

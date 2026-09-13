@@ -5,6 +5,7 @@ import {
   playDigitalItemAction,
   playDigitalSpellAction,
   attackDigitalAction,
+  resolveDefenseAction,
   endDigitalTurnAction,
   concedeDigitalMatchAction,
   activateTimeBombAction,
@@ -27,6 +28,15 @@ type CardDisplay = {
   image: string | null;
 };
 
+type SpriteDisplay = {
+  id: string;
+  name: string;
+  level: number;
+  spriteName: string;
+  image: string | null;
+  rarity: string | null;
+};
+
 type PlayFormAction = (formData: FormData) => void | Promise<void>;
 
 const CARD_SIZE = "w-24 sm:w-28 md:w-32";
@@ -37,31 +47,43 @@ function CardFace({
   cardsById,
   onEnlarge,
   large,
+  tired,
 }: {
   cardId: string;
   cardsById: Record<string, CardDisplay>;
   onEnlarge: (card: CardDisplay) => void;
   large?: boolean;
+  tired?: boolean;
 }) {
   const size = large ? CARD_SIZE_FULLSCREEN : CARD_SIZE;
   const card = cardsById[cardId];
   if (!card) return <div className={`aspect-[5/7] ${size} rounded-lg bg-sky-100`} />;
   return (
-    <button
-      type="button"
-      onClick={() => onEnlarge(card)}
-      className={`block aspect-[5/7] ${size} overflow-hidden rounded-lg border-2 border-sky-300 bg-white shadow-lg transition hover:scale-105`}
-      title={card.name}
-    >
-      {card.image ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={card.image} alt={card.name} className="h-full w-full object-contain" />
-      ) : (
-        <span className={`flex h-full items-center justify-center p-1 text-center font-semibold text-slate-600 ${large ? "text-base" : "text-xs"}`}>
-          {card.name}
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => onEnlarge(card)}
+        className={`block aspect-[5/7] ${size} overflow-hidden rounded-lg border-2 bg-white shadow-lg transition hover:scale-105 ${
+          tired ? "border-slate-400" : "border-sky-300"
+        }`}
+        style={tired ? { transform: "rotate(20deg)" } : undefined}
+        title={card.name}
+      >
+        {card.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={card.image} alt={card.name} className="h-full w-full object-contain" />
+        ) : (
+          <span className={`flex h-full items-center justify-center p-1 text-center font-semibold text-slate-600 ${large ? "text-base" : "text-xs"}`}>
+            {card.name}
+          </span>
+        )}
+      </button>
+      {tired && (
+        <span className="absolute -top-1.5 -right-1.5 rounded-full border border-white bg-slate-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
+          TIRED
         </span>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -74,10 +96,72 @@ function CardBack({ large }: { large?: boolean }) {
   );
 }
 
+function SpriteBadge({ sprite, large }: { sprite: SpriteDisplay | undefined; large?: boolean }) {
+  if (!sprite) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white/60 px-3 py-2 text-xs text-slate-400">
+        No Sprite equipped
+      </div>
+    );
+  }
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg border border-violet-300 bg-white px-3 py-2 shadow"
+      title={`${sprite.spriteName}${sprite.rarity ? ` (${sprite.rarity})` : ""} — Level ${sprite.level}`}
+    >
+      <div className={`overflow-hidden rounded-full border border-violet-200 bg-violet-50 ${large ? "h-12 w-12" : "h-9 w-9"}`}>
+        {sprite.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={sprite.image} alt={sprite.spriteName} className="h-full w-full object-cover" />
+        ) : (
+          <span className="flex h-full items-center justify-center text-xs font-bold text-violet-400">S</span>
+        )}
+      </div>
+      <div>
+        <p className={`font-bold leading-tight ${large ? "text-sm" : "text-xs"}`}>{sprite.name}</p>
+        <p className="text-[11px] leading-tight text-slate-500">
+          {sprite.spriteName} · Lv {sprite.level}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ZonePile({
+  label,
+  count,
+  variant,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  variant: "deck" | "discard";
+  onClick?: () => void;
+}) {
+  const base =
+    variant === "deck"
+      ? "border-slate-300 bg-gradient-to-br from-slate-500 to-slate-700 text-white"
+      : "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className={`flex flex-col items-center justify-center rounded-lg border-2 px-4 py-2 shadow ${base} ${
+        onClick ? "cursor-pointer" : "cursor-default"
+      }`}
+    >
+      <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
+      <span className="text-lg font-extrabold leading-tight">{count}</span>
+    </button>
+  );
+}
+
 export function Battlefield({
   matchId,
   visible,
   cardsById,
+  spritesById,
   legalActions,
   youUsername,
   opponentUsername,
@@ -85,6 +169,7 @@ export function Battlefield({
   matchId: string;
   visible: VisibleGameState;
   cardsById: Record<string, CardDisplay>;
+  spritesById: Record<string, SpriteDisplay>;
   legalActions: LegalAction[];
   youUsername: string;
   opponentUsername: string;
@@ -92,6 +177,7 @@ export function Battlefield({
   const [enlarged, setEnlarged] = useState<CardDisplay | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [targetPickerInstanceId, setTargetPickerInstanceId] = useState<string | null>(null);
+  const [openDiscard, setOpenDiscard] = useState<0 | 1 | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -114,6 +200,16 @@ export function Battlefield({
   const opponent = visible.players[opponentIndex];
   const isYourTurn = visible.activePlayerIndex === visible.viewerIndex;
 
+  const pending = visible.pendingCombat;
+  const youAreDefending = pending?.defendingPlayerIndex === visible.viewerIndex;
+  const youAreAttacking = pending?.attackingPlayerIndex === visible.viewerIndex;
+  const attackerCardId = pending
+    ? (visible.viewerIndex === pending.attackingPlayerIndex ? you : opponent).battlefield.find(
+        (c) => c.instanceId === pending.attackerInstanceId,
+      )?.cardId
+    : undefined;
+  const attackerName = attackerCardId ? cardsById[attackerCardId]?.name ?? "an Item" : "an Item";
+
   const playableInstanceIds = new Set(
     legalActions
       .filter((a) => a.type === "PLAY_ITEM" || a.type === "PLAY_SPELL")
@@ -128,6 +224,10 @@ export function Battlefield({
   const starDropInstanceIds = new Set(
     legalActions.filter((a) => a.type === "ACTIVATE_STAR_DROP").map((a) => a.instanceId),
   );
+  const defendableInstanceIds = new Set(
+    legalActions.filter((a) => a.type === "DEFEND").map((a) => a.instanceId),
+  );
+  const canChooseNoDefender = legalActions.some((a) => a.type === "NO_DEFENDER");
   const canEndTurn = legalActions.some((a) => a.type === "END_TURN");
 
   // Some cards' ON_PLAY effects need a real target — a player, or an Item
@@ -229,6 +329,25 @@ export function Battlefield({
     );
   }
 
+  function renderSideRail(side: "you" | "opponent") {
+    const isYou = side === "you";
+    const player = isYou ? you : opponent;
+    const playerIndexForSide = isYou ? visible.viewerIndex : opponentIndex;
+    const sprite = player.spriteInstanceId ? spritesById[player.spriteInstanceId] : undefined;
+    return (
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <SpriteBadge sprite={sprite} large={isFullscreen} />
+        <ZonePile label="Deck" count={player.deckCount} variant="deck" />
+        <ZonePile
+          label="Discard"
+          count={player.discard.length}
+          variant="discard"
+          onClick={() => setOpenDiscard(playerIndexForSide)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       ref={containerRef}
@@ -270,6 +389,45 @@ export function Battlefield({
           </div>
         )}
 
+        {pending && youAreAttacking && (
+          <div className="mt-4 animate-pulse rounded border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm font-bold text-amber-800">
+            WAITING FOR OPPONENT TO DEFEND — {attackerName} is attacking.
+          </div>
+        )}
+        {pending && youAreDefending && (
+          <div className="mt-4 rounded-xl border-2 border-red-300 bg-red-50 p-4 text-center shadow-lg">
+            <p className="text-base font-extrabold text-red-800">CHOOSE A DEFENDER</p>
+            <p className="mt-1 text-sm text-red-700">{opponentUsername}'s {attackerName} is attacking you.</p>
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+              {you.battlefield
+                .filter((c) => defendableInstanceIds.has(c.instanceId))
+                .map((c) => (
+                  <form key={c.instanceId} action={resolveDefenseAction}>
+                    <input type="hidden" name="matchId" value={matchId} />
+                    <input type="hidden" name="defenderInstanceId" value={c.instanceId} />
+                    <button type="submit" className="flex flex-col items-center gap-1">
+                      <CardFace cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
+                      <span className="rounded bg-red-600 px-3 py-1 text-xs font-bold text-white hover:bg-red-700">
+                        Defend
+                      </span>
+                    </button>
+                  </form>
+                ))}
+              {canChooseNoDefender && (
+                <form action={resolveDefenseAction}>
+                  <input type="hidden" name="matchId" value={matchId} />
+                  <button
+                    type="submit"
+                    className="rounded-full border border-red-400 bg-white px-5 py-2.5 text-sm font-bold text-red-700 shadow hover:bg-red-50"
+                  >
+                    No Defender / Take Attack
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Opponent */}
         <div className={`mt-4 rounded-2xl border border-sky-200 bg-white/95 shadow-xl backdrop-blur-sm ${isFullscreen ? "p-8" : "p-5"}`}>
           <div className="flex items-center justify-between">
@@ -301,12 +459,13 @@ export function Battlefield({
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
             {opponent.battlefield.map((c) => (
-              <CardFace key={c.instanceId} cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
+              <CardFace key={c.instanceId} cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} tired={c.tired} />
             ))}
             {opponent.battlefield.length === 0 && (
               <span className="text-xs text-slate-400">Empty battlefield</span>
             )}
           </div>
+          {renderSideRail("opponent")}
         </div>
 
         <div className="my-4 border-t-4 border-dashed border-white/50" />
@@ -320,9 +479,7 @@ export function Battlefield({
           <div className="flex flex-wrap items-center gap-3">
             {you.battlefield.map((c) => (
               <div key={c.instanceId} className="flex flex-col items-center gap-1.5">
-                <div className={c.tired ? "opacity-50" : ""}>
-                  <CardFace cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
-                </div>
+                <CardFace cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} tired={c.tired} />
                 {attackableInstanceIds.has(c.instanceId) && (
                   <form action={attackDigitalAction}>
                     <input type="hidden" name="matchId" value={matchId} />
@@ -407,6 +564,8 @@ export function Battlefield({
               ❤ {you.health}
             </span>
           </div>
+
+          {renderSideRail("you")}
         </div>
 
         <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -473,6 +632,65 @@ export function Battlefield({
                 </span>
               )}
             </p>
+          </div>
+        </div>
+      )}
+
+      {openDiscard !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setOpenDiscard(null)}
+        >
+          <div
+            className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl border-4 border-white bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold">
+                {openDiscard === visible.viewerIndex ? "Your discard pile" : `${opponentUsername}'s discard pile`}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setOpenDiscard(null)}
+                className="rounded-full px-2 py-1 text-sm font-bold text-slate-500 hover:bg-slate-100"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-3">
+              {visible.players[openDiscard].discard.map((c) => {
+                const card = cardsById[c.cardId];
+                return (
+                  <div key={c.instanceId} className="flex w-28 flex-col items-center gap-1 text-center">
+                    <div className="aspect-[5/7] w-28 overflow-hidden rounded-lg border-2 border-amber-300 bg-white shadow">
+                      {card?.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={card.image} alt={card.name} className="h-full w-full object-contain" />
+                      ) : (
+                        <span className="flex h-full items-center justify-center p-1 text-xs font-semibold text-slate-600">
+                          {card?.name ?? "Unknown"}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs font-semibold leading-tight">{card?.name ?? "Unknown"}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {card?.type}
+                      {(card?.attack !== null || card?.defence !== null || card?.speed !== null) && card && (
+                        <>
+                          {" "}
+                          {card.attack !== null && `ATK ${card.attack} `}
+                          {card.defence !== null && `DEF ${card.defence} `}
+                          {card.speed !== null && `SPD ${card.speed}`}
+                        </>
+                      )}
+                    </p>
+                  </div>
+                );
+              })}
+              {visible.players[openDiscard].discard.length === 0 && (
+                <p className="text-sm text-slate-400">Empty.</p>
+              )}
+            </div>
           </div>
         </div>
       )}

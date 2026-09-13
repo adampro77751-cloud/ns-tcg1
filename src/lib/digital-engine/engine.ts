@@ -3,10 +3,12 @@ import {
   type CardInstance,
   type DigitalGameState,
   type EngineCard,
+  type PendingCombat,
   type PlayerGameState,
   type StatBuffs,
 } from "./types";
 import { getCardAbilities, type AbilitySpec, type EffectSpec, type GameEvent } from "./abilities";
+import { getEquippedSprite, getSpriteTopicBonus, type SpriteEngineData } from "./sprite-abilities";
 
 // ---------------------------------------------------------------------------
 // Combat resolution — PROVISIONAL, see final report.
@@ -15,20 +17,30 @@ import { getCardAbilities, type AbilitySpec, type EffectSpec, type GameEvent } f
 // counters, Play cards, Attacks, Speed check, Defenders, Damage, Attackers
 // gain tired counters) and defines Attack/Defence/Speed/Health stats, but
 // does NOT specify anywhere in the codebase the exact formula for how those
-// stats resolve into damage. Rather than block Phase 1 on that, this engine
-// implements one concrete, internally-consistent reading of those named
-// steps:
+// stats resolve into damage — nor exactly what causes an Item to become
+// Tired beyond the turn-order step names, nor exactly how a defender is
+// declared. Rather than block on that, this engine implements one concrete,
+// internally-consistent reading of those named steps:
 //   - An attack always targets the opponent's health (Items have no
 //     separate "health"/toughness field in the schema — only Attack/
-//     Defence/Speed — so nothing is ever "destroyed" in combat).
-//   - The server auto-selects the defending player's untired battlefield
-//     Item with the highest Defence as the defender (no manual "choose
-//     your defender" UI yet — a known V1 limitation).
-//   - Speed check: if the defender's Speed >= the attacker's Speed, the
-//     defence applies and damage = max(0, attack - defence). Otherwise the
-//     defender is "too slow" and the full Attack goes through unmitigated.
-//   - If the defending player has no untired Item, the full Attack goes
-//     through unmitigated.
+//     Defence/Speed — so nothing is ever "destroyed" in combat, except via
+//     the separate PROVISIONAL damage-to-Item rule documented in
+//     abilities.ts).
+//   - Tired: an Item becomes Tired the moment it's declared as an attacker
+//     ("Attackers gain tired counters" — the last turn-order step) and
+//     stays Tired until the start of ITS CONTROLLER'S OWN next turn
+//     ("Remove tired counters" — the first turn-order step), matching the
+//     turn order exactly. A Tired Item cannot attack and cannot be chosen
+//     as a defender.
+//   - Defending is a real, player-chosen action (see PendingCombat /
+//     resolveDefense below) — the defending player picks any ONE of their
+//     untired battlefield Items, or explicitly takes the attack
+//     undefended. If they have no untired Item at all, there's no
+//     meaningful choice and the attack resolves as unopposed immediately.
+//   - Speed check: if the chosen defender's Speed >= the attacker's Speed,
+//     the defence applies and damage = max(0, attack - defence). Otherwise
+//     the defender is "too slow" and the full Attack goes through
+//     unmitigated (same outcome as not defending at all).
 // This needs confirming/correcting against the real designed rules —
 // flagged explicitly, not silently assumed to be canonical.
 
@@ -71,6 +83,42 @@ function getEffectiveStat(
   return (card[stat] ?? 0) + (instance.buffs?.[stat] ?? 0);
 }
 
+// Combat-specific stat lookup: base + card buffs (getEffectiveStat) PLUS
+// the owning player's equipped Sprite's passive bonus for that same stat,
+// if any is implemented (see sprite-abilities.ts). Deliberately scoped to
+// combat math only (declareAttack/resolveDefense/previewDefenseDamage) —
+// the older auto-targeting heuristics (pickStrongestItem etc.) still use
+// plain getEffectiveStat, unaffected by equipped Sprites.
+function combatStat(
+  state: DigitalGameState,
+  ownerIndex: 0 | 1,
+  instance: CardInstance,
+  card: EngineCard,
+  stat: "attack" | "defence" | "speed",
+  spritesById: Map<string, SpriteEngineData>,
+): number {
+  const sprite = getEquippedSprite(state.players[ownerIndex].spriteInstanceId, spritesById);
+  return getEffectiveStat(instance, card, stat) + getSpriteTopicBonus(sprite, stat);
+}
+
+// One shared damage-math implementation for both the real resolution
+// (resolveDefense / declareAttack's unopposed fast-path) and the bot's
+// preview (previewDefenseDamage), so they can never drift apart.
+function computeDamage(
+  attack: number,
+  attackerSpeed: number,
+  defender: { speed: number; defence: number; cardId: string } | null,
+): { damage: number; logSuffix: string } {
+  if (!defender) return { damage: attack, logSuffix: "unopposed" };
+  if (defender.speed >= attackerSpeed) {
+    return {
+      damage: Math.max(0, attack - defender.defence),
+      logSuffix: `defended by ${defender.cardId} (won speed check)`,
+    };
+  }
+  return { damage: attack, logSuffix: "defender too slow — attack went through unmitigated" };
+}
+
 function pickStrongestItem(
   candidates: { ownerIndex: 0 | 1; instance: CardInstance }[],
   cardsById: Map<string, EngineCard>,
@@ -108,6 +156,17 @@ function requireInProgress(state: DigitalGameState) {
 function requireTurn(state: DigitalGameState, playerIndex: 0 | 1) {
   if (state.activePlayerIndex !== playerIndex) {
     throw new IllegalActionError("It isn't your turn.");
+  }
+}
+
+// While an attack is awaiting a defender, the ATTACKING player (who is
+// still nominally "on turn" per activePlayerIndex) must not be able to do
+// anything else — playing cards, attacking again, or ending the turn.
+// The defending player is separately blocked from these same actions by
+// requireTurn, since it's never their turn while this is true.
+function requireNoPendingCombat(state: DigitalGameState) {
+  if (state.pendingCombat) {
+    throw new IllegalActionError("Resolve the pending attack first.");
   }
 }
 
@@ -212,6 +271,7 @@ export function createGameState(params: {
     winnerIndex: null,
     itemsLockedForRestOfGame: false,
     spellsLockedForRestOfGame: false,
+    pendingCombat: null,
   };
 
   // "End Of Year Test: If this is in your hand at the beginning of the
@@ -282,12 +342,13 @@ function drawWithTrigger(
   playerIndex: 0 | 1,
   cardsById: Map<string, EngineCard>,
   depth: number,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   if (isDetentionInPlay(state, cardsById)) return state;
   const before = state.players[playerIndex].deck.length;
   state = drawCardRaw(state, playerIndex);
   if (state.players[playerIndex].deck.length === before) return state; // was a no-op (empty deck)
-  return dispatchEvent(state, "CARD_DRAWN", { drawingPlayerIndex: playerIndex }, cardsById, depth + 1);
+  return dispatchEvent(state, "CARD_DRAWN", { drawingPlayerIndex: playerIndex }, cardsById, depth + 1, spritesById);
 }
 
 function dealDamageWithTrigger(
@@ -297,9 +358,24 @@ function dealDamageWithTrigger(
   dealtByIndex: 0 | 1,
   cardsById: Map<string, EngineCard>,
   depth: number,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
+  // Fire Sprite: "If you would deal damage to an opponent, deal an
+  // additional 10/20 damage." Only applies when dealing damage to the
+  // OPPONENT (not self-inflicted effects), matching the real text exactly.
+  const dealerSprite = getEquippedSprite(state.players[dealtByIndex].spriteInstanceId, spritesById);
+  const boostedAmount =
+    targetIndex !== dealtByIndex ? amount + getSpriteTopicBonus(dealerSprite, "damageDealt") : amount;
+
+  if (boostedAmount !== amount) {
+    state = {
+      ...state,
+      log: [...state.log, `${describePlayer(dealtByIndex)}'s Fire Sprite adds ${boostedAmount - amount} damage.`],
+    };
+  }
+
   const target = state.players[targetIndex];
-  const actualAmount = target.damagePreventedThisTurn ? 0 : amount;
+  const actualAmount = target.damagePreventedThisTurn ? 0 : boostedAmount;
   state = updatePlayer(state, targetIndex, (p) => ({ ...p, health: p.health - actualAmount }));
   state = checkWin(state);
   if (state.phase === "COMPLETE" || actualAmount <= 0) return state;
@@ -327,6 +403,7 @@ function enterBattlefield(
   cardsById: Map<string, EngineCard>,
   depth: number,
   chosenTarget?: string,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   const instance: CardInstance = { ...rawInstance, tired: false, buffs: { ...ZERO_BUFFS } };
   state = updatePlayer(state, playerIndex, (p) => ({ ...p, battlefield: [...p.battlefield, instance] }));
@@ -343,6 +420,7 @@ function enterBattlefield(
       depth,
       Math.random,
       chosenTarget,
+      spritesById,
     );
   }
   if (depth < MAX_TRIGGER_DEPTH) {
@@ -352,6 +430,7 @@ function enterBattlefield(
       { enteredInstanceId: instance.instanceId },
       cardsById,
       depth + 1,
+      spritesById,
     );
   }
   return state;
@@ -376,6 +455,7 @@ type EffectRunCtx = {
    *  which case ANY_ITEM/OPPONENT_ITEM/OWN_ITEM/ANY_TARGET fall back to
    *  their documented auto-heuristic. */
   chosenTarget?: string;
+  spritesById: Map<string, SpriteEngineData>;
 };
 
 function findInstanceAnywhere(
@@ -403,7 +483,7 @@ function applyEffect(
     case "DRAW": {
       const targetIndex = effect.target === "OPPONENT" ? opponentIdx : controllerIndex;
       for (let i = 0; i < amount; i++) {
-        state = drawWithTrigger(state, targetIndex, cardsById, depth);
+        state = drawWithTrigger(state, targetIndex, cardsById, depth, ctx.spritesById);
       }
       return { state, resolvedTarget: null };
     }
@@ -413,7 +493,7 @@ function applyEffect(
         const chosen = ctx.chosenTarget;
         if (chosen?.startsWith("player:")) {
           const targetIndex = chosen === "player:0" ? 0 : 1;
-          state = dealDamageWithTrigger(state, targetIndex, amount, controllerIndex, cardsById, depth);
+          state = dealDamageWithTrigger(state, targetIndex, amount, controllerIndex, cardsById, depth, ctx.spritesById);
           return { state, resolvedTarget: chosen };
         }
         if (chosen?.startsWith("item:")) {
@@ -430,23 +510,31 @@ function applyEffect(
                 battlefield: removeFromZone(p.battlefield, found.instance.instanceId),
                 discard: [...p.discard, found.instance],
               }));
-              state = afterMoveToDiscard(state, found.ownerIndex, found.instance, cardsById, depth);
+              state = afterMoveToDiscard(state, found.ownerIndex, found.instance, cardsById, depth, ctx.spritesById);
             }
             return { state, resolvedTarget: chosen };
           }
         }
         // No (valid) chosen target — bot/fallback path, same as before this feature existed.
-        state = dealDamageWithTrigger(state, opponentIdx, amount, controllerIndex, cardsById, depth);
+        state = dealDamageWithTrigger(state, opponentIdx, amount, controllerIndex, cardsById, depth, ctx.spritesById);
         return { state, resolvedTarget: null };
       }
       const targetIndex = effect.target === "SELF" ? controllerIndex : opponentIdx;
-      state = dealDamageWithTrigger(state, targetIndex, amount, controllerIndex, cardsById, depth);
+      state = dealDamageWithTrigger(state, targetIndex, amount, controllerIndex, cardsById, depth, ctx.spritesById);
       return { state, resolvedTarget: null };
     }
 
+    // Angel Sprite: "Whenever you gain Health, gain an additional 10/20
+    // Health." Only the controller's OWN Health gain is boosted — a Spell
+    // that gives the opponent health (none currently do) wouldn't get it.
     case "GAIN_HEALTH": {
       const targetIndex = effect.target === "OPPONENT" ? opponentIdx : controllerIndex;
-      state = updatePlayer(state, targetIndex, (p) => ({ ...p, health: p.health + amount }));
+      const gainerSprite =
+        targetIndex === controllerIndex
+          ? getEquippedSprite(state.players[controllerIndex].spriteInstanceId, ctx.spritesById)
+          : undefined;
+      const boostedAmount = amount + getSpriteTopicBonus(gainerSprite, "healthGained");
+      state = updatePlayer(state, targetIndex, (p) => ({ ...p, health: p.health + boostedAmount }));
       return { state, resolvedTarget: null };
     }
 
@@ -467,7 +555,7 @@ function applyEffect(
         discard: [...p.discard, ...movedToDiscard],
       }));
       for (const instance of movedToDiscard) {
-        state = afterMoveToDiscard(state, targetIndex, instance, cardsById, depth);
+        state = afterMoveToDiscard(state, targetIndex, instance, cardsById, depth, ctx.spritesById);
       }
       return { state, resolvedTarget: null };
     }
@@ -480,7 +568,7 @@ function applyEffect(
         battlefield: removeFromZone(p.battlefield, found.instance.instanceId),
         discard: [...p.discard, found.instance],
       }));
-      state = afterMoveToDiscard(state, found.ownerIndex, found.instance, cardsById, depth);
+      state = afterMoveToDiscard(state, found.ownerIndex, found.instance, cardsById, depth, ctx.spritesById);
       return { state, resolvedTarget: found.instance.instanceId };
     }
 
@@ -509,7 +597,7 @@ function applyEffect(
               ...p,
               discard: removeFromZone(p.discard, instance.instanceId),
             }));
-            state = enterBattlefield(state, ownerIndex, instance, cardsById, depth);
+            state = enterBattlefield(state, ownerIndex, instance, cardsById, depth, undefined, ctx.spritesById);
             return { state, resolvedTarget: instance.instanceId };
           }
         }
@@ -523,7 +611,7 @@ function applyEffect(
           ...p,
           discard: removeFromZone(p.discard, instance.instanceId),
         }));
-        state = enterBattlefield(state, controllerIndex, instance, cardsById, depth);
+        state = enterBattlefield(state, controllerIndex, instance, cardsById, depth, undefined, ctx.spritesById);
         return { state, resolvedTarget: instance.instanceId };
       }
       if (effect.target === "SELF_HAND_ITEM") {
@@ -533,7 +621,7 @@ function applyEffect(
         for (let i = 0; i < n; i++) {
           const instance = items[i];
           state = updatePlayer(state, controllerIndex, (p) => ({ ...p, hand: removeFromZone(p.hand, instance.instanceId) }));
-          state = enterBattlefield(state, controllerIndex, instance, cardsById, depth);
+          state = enterBattlefield(state, controllerIndex, instance, cardsById, depth, undefined, ctx.spritesById);
         }
         return { state, resolvedTarget: null };
       }
@@ -542,7 +630,7 @@ function applyEffect(
       const item = discard.find((c) => cardsById.get(c.cardId)?.type === "Item");
       if (!item) return { state, resolvedTarget: null };
       state = updatePlayer(state, controllerIndex, (p) => ({ ...p, discard: removeFromZone(p.discard, item.instanceId) }));
-      state = enterBattlefield(state, controllerIndex, item, cardsById, depth);
+      state = enterBattlefield(state, controllerIndex, item, cardsById, depth, undefined, ctx.spritesById);
       return { state, resolvedTarget: item.instanceId };
     }
 
@@ -564,7 +652,7 @@ function applyEffect(
       if (!found) return { state, resolvedTarget: null };
       const rest = shuffle(removeFromZone(deck, found.instanceId), ctx.random);
       state = updatePlayer(state, controllerIndex, (p) => ({ ...p, deck: rest }));
-      state = enterBattlefield(state, controllerIndex, found, cardsById, depth);
+      state = enterBattlefield(state, controllerIndex, found, cardsById, depth, undefined, ctx.spritesById);
       return { state, resolvedTarget: found.instanceId };
     }
 
@@ -613,7 +701,7 @@ function applyEffect(
           .sort((a, b) => b.attack - a.attack)[0];
         if (!best) return { state, resolvedTarget: null };
         state = updatePlayer(state, opponentIdx, (p) => ({ ...p, hand: removeFromZone(p.hand, best.instance.instanceId) }));
-        state = enterBattlefield(state, controllerIndex, best.instance, cardsById, depth);
+        state = enterBattlefield(state, controllerIndex, best.instance, cardsById, depth, undefined, ctx.spritesById);
         return { state, resolvedTarget: best.instance.instanceId };
       }
       const found = findItemForTarget(state, effect.target, controllerIndex, cardsById, ctx.chosenTarget);
@@ -622,7 +710,7 @@ function applyEffect(
         ...p,
         battlefield: removeFromZone(p.battlefield, found.instance.instanceId),
       }));
-      state = enterBattlefield(state, controllerIndex, found.instance, cardsById, depth);
+      state = enterBattlefield(state, controllerIndex, found.instance, cardsById, depth, undefined, ctx.spritesById);
       return { state, resolvedTarget: found.instance.instanceId };
     }
 
@@ -696,7 +784,7 @@ function applyEffect(
           battlefield: removeFromZone(p.battlefield, weakest.instanceId),
           discard: [...p.discard, weakest],
         }));
-        state = afterMoveToDiscard(state, idx, weakest, cardsById, depth);
+        state = afterMoveToDiscard(state, idx, weakest, cardsById, depth, ctx.spritesById);
       }
       return { state, resolvedTarget: null };
     }
@@ -724,10 +812,21 @@ function applyEffect(
       const spellCard = cardsById.get(spell.cardId);
       if (!spellCard) return { state, resolvedTarget: null };
       state = updatePlayer(state, controllerIndex, (p) => ({ ...p, discard: removeFromZone(p.discard, spell.instanceId) }));
-      state = resolveAbilities(state, controllerIndex, spellCard.slug, "ON_PLAY", cardsById, spell.instanceId, depth, ctx.random);
+      state = resolveAbilities(
+        state,
+        controllerIndex,
+        spellCard.slug,
+        "ON_PLAY",
+        cardsById,
+        spell.instanceId,
+        depth,
+        ctx.random,
+        undefined,
+        ctx.spritesById,
+      );
       if (state.phase === "COMPLETE") return { state, resolvedTarget: spell.instanceId };
       state = updatePlayer(state, controllerIndex, (p) => ({ ...p, discard: [...p.discard, spell] }));
-      state = afterMoveToDiscard(state, controllerIndex, spell, cardsById, depth);
+      state = afterMoveToDiscard(state, controllerIndex, spell, cardsById, depth, ctx.spritesById);
       return { state, resolvedTarget: spell.instanceId };
     }
 
@@ -791,11 +890,23 @@ function afterMoveToDiscard(
   instance: CardInstance,
   cardsById: Map<string, EngineCard>,
   depth: number,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   if (depth >= MAX_TRIGGER_DEPTH) return state;
   const card = cardsById.get(instance.cardId);
   if (!card) return state;
-  return resolveAbilities(state, ownerIndex, card.slug, "CARD_DISCARDED", cardsById, instance.instanceId, depth + 1);
+  return resolveAbilities(
+    state,
+    ownerIndex,
+    card.slug,
+    "CARD_DISCARDED",
+    cardsById,
+    instance.instanceId,
+    depth + 1,
+    Math.random,
+    undefined,
+    spritesById,
+  );
 }
 
 // Resolves every ability of `cardSlug` matching `trigger`, run from
@@ -812,6 +923,7 @@ function resolveAbilities(
   depth: number,
   random: () => number = Math.random,
   chosenTarget?: string,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   if (depth >= MAX_TRIGGER_DEPTH) return state;
   const abilities = getCardAbilities(cardSlug).filter((a) => a.trigger === trigger);
@@ -821,7 +933,7 @@ function resolveAbilities(
       const result = applyEffect(
         state,
         effect,
-        { controllerIndex, thisInstanceId, cardsById, depth, random, chosenTarget },
+        { controllerIndex, thisInstanceId, cardsById, depth, random, chosenTarget, spritesById },
         previousTarget,
       );
       state = result.state;
@@ -849,6 +961,7 @@ function dispatchEvent(
   },
   cardsById: Map<string, EngineCard>,
   depth: number,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   if (depth >= MAX_TRIGGER_DEPTH) return state;
 
@@ -872,7 +985,14 @@ function dispatchEvent(
           const result = applyEffect(
             state,
             effect,
-            { controllerIndex: ownerIndex, thisInstanceId: instance.instanceId, cardsById, depth, random: Math.random },
+            {
+              controllerIndex: ownerIndex,
+              thisInstanceId: instance.instanceId,
+              cardsById,
+              depth,
+              random: Math.random,
+              spritesById,
+            },
             previousTarget,
           );
           state = result.state;
@@ -899,9 +1019,11 @@ function playCard(
   cardsById: Map<string, EngineCard>,
   expectedType: "Item" | "Spell",
   chosenTarget?: string,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   requireInProgress(state);
   requireTurn(state, playerIndex);
+  requireNoPendingCombat(state);
 
   const player = state.players[playerIndex];
   let inHand = findCardInstance(player.hand, instanceId);
@@ -945,8 +1067,12 @@ function playCard(
     // (otherwise the ability would be pointless — Art itself already used
     // that turn's one Spell) — so a discard-sourced cast never consumes or
     // is blocked by this counter at all.
+    // Water Sprite L5: "You may play 1 additional Spell each turn" — same
+    // shape as Biologist's raised Item limit.
+    const spriteSpellLimit =
+      1 + getSpriteTopicBonus(getEquippedSprite(player.spriteInstanceId, spritesById), "extraSpellLimit");
     const unlimited = player.unlimitedSpellsThisTurn;
-    const withinBaseLimit = player.spellsPlayedThisTurn < 1;
+    const withinBaseLimit = player.spellsPlayedThisTurn < spriteSpellLimit;
     if (!unlimited && !withinBaseLimit) {
       if (player.extraPlaysThisTurn <= 0) {
         throw new IllegalActionError("You've already played a Spell this turn.");
@@ -969,14 +1095,25 @@ function playCard(
   };
 
   if (expectedType === "Item") {
-    state = enterBattlefield(state, playerIndex, inHand, cardsById, 0, chosenTarget);
-    state = dispatchEvent(state, "ITEM_PLAYED", { playerIndex }, cardsById, 1);
+    state = enterBattlefield(state, playerIndex, inHand, cardsById, 0, chosenTarget, spritesById);
+    state = dispatchEvent(state, "ITEM_PLAYED", { playerIndex }, cardsById, 1, spritesById);
   } else {
-    state = resolveAbilities(state, playerIndex, card.slug, "ON_PLAY", cardsById, inHand.instanceId, 0, Math.random, chosenTarget);
+    state = resolveAbilities(
+      state,
+      playerIndex,
+      card.slug,
+      "ON_PLAY",
+      cardsById,
+      inHand.instanceId,
+      0,
+      Math.random,
+      chosenTarget,
+      spritesById,
+    );
     if (state.phase !== "COMPLETE") {
       state = updatePlayer(state, playerIndex, (p) => ({ ...p, discard: [...p.discard, inHand] }));
-      state = afterMoveToDiscard(state, playerIndex, inHand, cardsById, 0);
-      state = dispatchEvent(state, "SPELL_PLAYED", { playerIndex }, cardsById, 1);
+      state = afterMoveToDiscard(state, playerIndex, inHand, cardsById, 0, spritesById);
+      state = dispatchEvent(state, "SPELL_PLAYED", { playerIndex }, cardsById, 1, spritesById);
     }
   }
 
@@ -989,8 +1126,9 @@ export function playItem(
   instanceId: string,
   cardsById: Map<string, EngineCard>,
   chosenTarget?: string,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
-  return playCard(state, playerIndex, instanceId, cardsById, "Item", chosenTarget);
+  return playCard(state, playerIndex, instanceId, cardsById, "Item", chosenTarget, spritesById);
 }
 
 export function playSpell(
@@ -999,8 +1137,9 @@ export function playSpell(
   instanceId: string,
   cardsById: Map<string, EngineCard>,
   chosenTarget?: string,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
-  return playCard(state, playerIndex, instanceId, cardsById, "Spell", chosenTarget);
+  return playCard(state, playerIndex, instanceId, cardsById, "Spell", chosenTarget, spritesById);
 }
 
 export function declareAttack(
@@ -1008,9 +1147,11 @@ export function declareAttack(
   playerIndex: 0 | 1,
   attackerInstanceId: string,
   cardsById: Map<string, EngineCard>,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   requireInProgress(state);
   requireTurn(state, playerIndex);
+  requireNoPendingCombat(state);
 
   const defenderIndex = opponentIndex(playerIndex);
   const attackerPlayer = state.players[playerIndex];
@@ -1025,62 +1166,176 @@ export function declareAttack(
   }
 
   const attackerCard = requireCard(cardsById, attackerInstance.cardId);
-  const attack = getEffectiveStat(attackerInstance, attackerCard, "attack");
-  const attackerSpeed = getEffectiveStat(attackerInstance, attackerCard, "speed");
 
-  let bestDefenderInstance: CardInstance | null = null;
-  let bestDefenderCard: EngineCard | null = null;
-  let bestDefenderValue = -Infinity;
-  for (const instance of defenderPlayer.battlefield) {
-    if (instance.tired) continue;
-    const card = requireCard(cardsById, instance.cardId);
-    const defence = getEffectiveStat(instance, card, "defence");
-    if (defence > bestDefenderValue) {
-      bestDefenderInstance = instance;
-      bestDefenderCard = card;
-      bestDefenderValue = defence;
-    }
-  }
-
-  let damage = attack;
-  let logSuffix = "unopposed";
-  if (bestDefenderInstance && bestDefenderCard) {
-    const defenderSpeed = getEffectiveStat(bestDefenderInstance, bestDefenderCard, "speed");
-    if (defenderSpeed >= attackerSpeed) {
-      damage = Math.max(0, attack - getEffectiveStat(bestDefenderInstance, bestDefenderCard, "defence"));
-      logSuffix = `defended by ${bestDefenderCard.id} (won speed check)`;
-    } else {
-      logSuffix = `defender too slow — attack went through unmitigated`;
-    }
-  }
-
+  // "Attackers gain tired counters" — the real turn-order's last combat
+  // step, applied immediately on declaration (before the defender is even
+  // chosen), matching what this replaces and the step's ordering relative
+  // to "Defenders"/"Damage".
   state = updatePlayer(state, playerIndex, (p) => ({
     ...p,
     battlefield: p.battlefield.map((c) => (c.instanceId === attackerInstanceId ? { ...c, tired: true } : c)),
   }));
+  state = {
+    ...state,
+    log: [...state.log, `${describePlayer(playerIndex)} attacked with ${attackerCard.id}.`],
+  };
+
+  // "When Bio Worm/Cathedral Pergrines attacks, ..." — self-only, fires at
+  // declaration regardless of how the defender choice later resolves.
+  state = resolveAbilities(
+    state,
+    playerIndex,
+    attackerCard.slug,
+    "ATTACK_STARTED",
+    cardsById,
+    attackerInstanceId,
+    0,
+    Math.random,
+    undefined,
+    spritesById,
+  );
+  if (state.phase === "COMPLETE") return state;
+
+  const legalDefenderInstanceIds = defenderPlayer.battlefield.filter((c) => !c.tired).map((c) => c.instanceId);
+
+  if (legalDefenderInstanceIds.length === 0) {
+    // No untired Item to possibly defend with — there's no meaningful
+    // choice, so resolve immediately as unopposed rather than making the
+    // defending player click through a pointless "no defender" step.
+    const attack = combatStat(state, playerIndex, attackerInstance, attackerCard, "attack", spritesById);
+    state = {
+      ...state,
+      log: [...state.log, `${describePlayer(defenderIndex)} has no untired Item to defend with — unopposed.`],
+    };
+    return dealDamageWithTrigger(state, defenderIndex, attack, playerIndex, cardsById, 0, spritesById);
+  }
+
+  return {
+    ...state,
+    pendingCombat: {
+      attackerInstanceId,
+      attackingPlayerIndex: playerIndex,
+      defendingPlayerIndex: defenderIndex,
+      legalDefenderInstanceIds,
+    },
+    log: [...state.log, `Awaiting ${describePlayer(defenderIndex)}'s defender.`],
+  };
+}
+
+// The defending player's response to a PendingCombat: either the
+// instanceId of one of their own untired battlefield Items, or null to
+// explicitly take the attack undefended. Re-validates the choice against
+// the LIVE battlefield (never trusts PendingCombat.legalDefenderInstanceIds
+// alone), applies the same Speed-check/damage formula declareAttack used
+// to use inline, then clears the pending state and lets play continue.
+export function resolveDefense(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  defenderInstanceId: string | null,
+  cardsById: Map<string, EngineCard>,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
+): DigitalGameState {
+  requireInProgress(state);
+  const pending = state.pendingCombat;
+  if (!pending) throw new IllegalActionError("There is no attack awaiting a defender.");
+  if (pending.defendingPlayerIndex !== playerIndex) {
+    throw new IllegalActionError("You aren't the defending player for this attack.");
+  }
+
+  const attackerInstance = findCardInstance(
+    state.players[pending.attackingPlayerIndex].battlefield,
+    pending.attackerInstanceId,
+  );
+  if (!attackerInstance) {
+    // Attacker is somehow gone (shouldn't happen — the attacker can't act
+    // while a combat is pending) — nothing left to resolve.
+    return { ...state, pendingCombat: null };
+  }
+  const attackerCard = requireCard(cardsById, attackerInstance.cardId);
+  const attack = combatStat(state, pending.attackingPlayerIndex, attackerInstance, attackerCard, "attack", spritesById);
+  const attackerSpeed = combatStat(
+    state,
+    pending.attackingPlayerIndex,
+    attackerInstance,
+    attackerCard,
+    "speed",
+    spritesById,
+  );
+
+  let defenderStats: { speed: number; defence: number; cardId: string } | null = null;
+  if (defenderInstanceId !== null) {
+    const instance = findCardInstance(state.players[playerIndex].battlefield, defenderInstanceId);
+    if (!instance || instance.tired) {
+      throw new IllegalActionError("That Item can't defend.");
+    }
+    const card = requireCard(cardsById, instance.cardId);
+    defenderStats = {
+      speed: combatStat(state, playerIndex, instance, card, "speed", spritesById),
+      defence: combatStat(state, playerIndex, instance, card, "defence", spritesById),
+      cardId: card.id,
+    };
+  }
+
+  const { damage, logSuffix } = computeDamage(attack, attackerSpeed, defenderStats);
 
   state = {
     ...state,
+    pendingCombat: null,
     log: [
       ...state.log,
-      `${describePlayer(playerIndex)} attacked with ${attackerCard.id} for ${damage} damage (${logSuffix}).`,
+      `${describePlayer(pending.attackingPlayerIndex)}'s attack resolved for ${damage} damage (${logSuffix}).`,
     ],
   };
+  return dealDamageWithTrigger(state, playerIndex, damage, pending.attackingPlayerIndex, cardsById, 0, spritesById);
+}
 
-  // "When Bio Worm attacks, ..." — self-only, checked before damage so a
-  // damage-caused KO can't skip it, matching "attack declared" timing.
-  state = resolveAbilities(state, playerIndex, attackerCard.slug, "ATTACK_STARTED", cardsById, attackerInstanceId, 0);
-  if (state.phase === "COMPLETE") return state;
+// Pure preview of what resolveDefense would deal for a given candidate
+// defender (or null for "no defender") — used by the bot to pick the
+// option that minimizes damage taken, without mutating state. Shares
+// computeDamage with the real resolution so they can never disagree.
+export function previewDefenseDamage(
+  state: DigitalGameState,
+  cardsById: Map<string, EngineCard>,
+  spritesById: Map<string, SpriteEngineData>,
+  defenderInstanceId: string | null,
+): number {
+  const pending = state.pendingCombat;
+  if (!pending) return 0;
+  const attackerInstance = findCardInstance(
+    state.players[pending.attackingPlayerIndex].battlefield,
+    pending.attackerInstanceId,
+  );
+  if (!attackerInstance) return 0;
+  const attackerCard = requireCard(cardsById, attackerInstance.cardId);
+  const attack = combatStat(state, pending.attackingPlayerIndex, attackerInstance, attackerCard, "attack", spritesById);
+  const attackerSpeed = combatStat(
+    state,
+    pending.attackingPlayerIndex,
+    attackerInstance,
+    attackerCard,
+    "speed",
+    spritesById,
+  );
+  if (defenderInstanceId === null) return attack;
 
-  state = dealDamageWithTrigger(state, defenderIndex, damage, playerIndex, cardsById, 0);
-  return state;
+  const instance = findCardInstance(state.players[pending.defendingPlayerIndex].battlefield, defenderInstanceId);
+  if (!instance) return attack;
+  const card = requireCard(cardsById, instance.cardId);
+  const { damage } = computeDamage(attack, attackerSpeed, {
+    speed: combatStat(state, pending.defendingPlayerIndex, instance, card, "speed", spritesById),
+    defence: combatStat(state, pending.defendingPlayerIndex, instance, card, "defence", spritesById),
+    cardId: card.id,
+  });
+  return damage;
 }
 
 export function endTurn(
   state: DigitalGameState,
   cardsById: Map<string, EngineCard> = new Map(),
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   requireInProgress(state);
+  requireNoPendingCombat(state);
 
   const endingIndex = state.activePlayerIndex;
   const nextIndex = opponentIndex(endingIndex);
@@ -1108,7 +1363,7 @@ export function endTurn(
     turnNumber: state.turnNumber + 1,
     log: [...state.log, `Turn ended. ${describePlayer(nextIndex)}'s turn.`],
   };
-  state = drawWithTrigger(state, nextIndex, cardsById, 0);
+  state = drawWithTrigger(state, nextIndex, cardsById, 0, spritesById);
   return state;
 }
 
@@ -1118,6 +1373,7 @@ export function concede(state: DigitalGameState, playerIndex: 0 | 1): DigitalGam
     ...state,
     phase: "COMPLETE",
     winnerIndex: opponentIndex(playerIndex),
+    pendingCombat: null,
     log: [...state.log, `${describePlayer(playerIndex)} conceded.`],
   };
 }
@@ -1133,6 +1389,7 @@ export function activateTimeBomb(
 ): DigitalGameState {
   requireInProgress(state);
   requireTurn(state, playerIndex);
+  requireNoPendingCombat(state);
 
   const instance = findCardInstance(state.players[playerIndex].battlefield, instanceId);
   if (!instance) throw new IllegalActionError("That Item isn't on your battlefield.");
@@ -1159,9 +1416,11 @@ export function activateStarDrop(
   instanceId: string,
   cardsById: Map<string, EngineCard>,
   random: () => number = Math.random,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   requireInProgress(state);
   requireTurn(state, playerIndex);
+  requireNoPendingCombat(state);
 
   const instance = findCardInstance(state.players[playerIndex].battlefield, instanceId);
   if (!instance) throw new IllegalActionError("That card isn't on your battlefield.");
@@ -1182,8 +1441,8 @@ export function activateStarDrop(
       c.instanceId === instanceId ? { ...c, activationsThisTurn: (c.activationsThisTurn ?? 0) + 1 } : c,
     ),
   }));
-  state = afterMoveToDiscard(state, playerIndex, discarded, cardsById, 0);
-  state = drawWithTrigger(state, playerIndex, cardsById, 0);
+  state = afterMoveToDiscard(state, playerIndex, discarded, cardsById, 0, spritesById);
+  state = drawWithTrigger(state, playerIndex, cardsById, 0, spritesById);
   return state;
 }
 
@@ -1197,6 +1456,8 @@ export type LegalAction =
   | { type: "ATTACK"; instanceId: string }
   | { type: "ACTIVATE_TIME_BOMB"; instanceId: string }
   | { type: "ACTIVATE_STAR_DROP"; instanceId: string }
+  | { type: "DEFEND"; instanceId: string }
+  | { type: "NO_DEFENDER" }
   | { type: "END_TURN" };
 
 export function getLegalActions(
@@ -1204,7 +1465,22 @@ export function getLegalActions(
   playerIndex: 0 | 1,
   cardsById: Map<string, EngineCard>,
 ): LegalAction[] {
-  if (state.phase === "COMPLETE" || state.activePlayerIndex !== playerIndex) return [];
+  if (state.phase === "COMPLETE") return [];
+
+  // While an attack is awaiting a defender, ONLY the defending player has
+  // anything to do — pick one of their own untired battlefield Items, or
+  // explicitly take the attack undefended. The attacking player (still
+  // nominally "on turn") and anyone else get nothing until this resolves.
+  if (state.pendingCombat) {
+    if (state.pendingCombat.defendingPlayerIndex !== playerIndex) return [];
+    const defenderActions: LegalAction[] = state.players[playerIndex].battlefield
+      .filter((c) => !c.tired)
+      .map((c) => ({ type: "DEFEND" as const, instanceId: c.instanceId }));
+    defenderActions.push({ type: "NO_DEFENDER" });
+    return defenderActions;
+  }
+
+  if (state.activePlayerIndex !== playerIndex) return [];
 
   const player = state.players[playerIndex];
   const actions: LegalAction[] = [];
@@ -1306,6 +1582,7 @@ export function getVisibleState(state: DigitalGameState, viewerIndex: 0 | 1): Vi
     winnerIndex: state.winnerIndex,
     itemsLockedForRestOfGame: state.itemsLockedForRestOfGame,
     spellsLockedForRestOfGame: state.spellsLockedForRestOfGame,
+    pendingCombat: state.pendingCombat,
     viewerIndex,
     players: [redact(state.players[0], viewerIndex === 0), redact(state.players[1], viewerIndex === 1)],
   };

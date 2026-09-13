@@ -76,6 +76,21 @@ export type PlayerGameState = {
 
 export type GamePhase = "MAIN" | "COMPLETE";
 
+// An attack that's been declared but not yet resolved — the defending
+// player must choose a defender (or explicitly take the attack
+// undefended) before play can continue. Stored in authoritative state so
+// it survives a reload and works identically in PvP and Bot matches. Only
+// ever set by declareAttack and cleared by resolveDefense.
+export type PendingCombat = {
+  attackerInstanceId: string;
+  attackingPlayerIndex: 0 | 1;
+  defendingPlayerIndex: 0 | 1;
+  /** Snapshot of legal defenders at declaration time, for display —
+   *  resolveDefense re-validates against the live battlefield, never
+   *  trusts this list alone. */
+  legalDefenderInstanceIds: string[];
+};
+
 export type DigitalGameState = {
   matchId: string;
   formatId: string;
@@ -93,6 +108,9 @@ export type DigitalGameState = {
    *  qualifier in the real rulesText). */
   itemsLockedForRestOfGame: boolean;
   spellsLockedForRestOfGame: boolean;
+  /** null when no attack is currently awaiting a defender. Public info —
+   *  never redacted (see getVisibleState). */
+  pendingCombat: PendingCombat | null;
 };
 
 // Card data the engine needs but does not itself store (kept in the DB,
