@@ -4,12 +4,63 @@ import {
   previewDefenseDamage,
   endTurn,
   getLegalActions,
+  getTargetCandidateIds,
   playItem,
   playSpell,
   type LegalAction,
 } from "./engine";
+import { getRequiredTarget } from "./abilities";
 import type { DigitalGameState, EngineCard } from "./types";
 import type { SpriteEngineData } from "./sprite-abilities";
+
+// Looks up the real card behind a hand/discard instanceId (Art can make a
+// discard-pile Spell playable too), purely to read its slug for
+// getRequiredTarget — the same lookup the UI does before showing a target
+// picker.
+function findPlayableCard(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  instanceId: string,
+  cardsById: Map<string, EngineCard>,
+): EngineCard | undefined {
+  const player = state.players[playerIndex];
+  const instance =
+    player.hand.find((c) => c.instanceId === instanceId) ?? player.discard.find((c) => c.instanceId === instanceId);
+  return instance ? cardsById.get(instance.cardId) : undefined;
+}
+
+// Chooses a target for a card the Bot has already decided to play, the
+// same way a human clicking through the target picker would: for a plain
+// Item-target requirement, pick uniformly AT RANDOM among the legal
+// candidates (never the human's "strongest" heuristic — the Bot's removal
+// effects like Coke/Reflection should feel arbitrary, not optimal); for
+// "any target" (player or Item), default to the opponent's face, the
+// sensible choice for a damage effect. getLegalActions has already
+// guaranteed at least one candidate exists for any action it listed, so
+// this should never come back empty in practice — but degrades to
+// `undefined` (falling back to the engine's own auto-heuristic) rather
+// than throwing if it somehow does.
+function chooseBotTarget(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  instanceId: string,
+  cardsById: Map<string, EngineCard>,
+  random: () => number,
+): string | undefined {
+  const card = findPlayableCard(state, playerIndex, instanceId, cardsById);
+  if (!card) return undefined;
+  const requirement = getRequiredTarget(card.slug);
+  if (!requirement) return undefined;
+
+  const { playerTargetIds, itemInstanceIds } = getTargetCandidateIds(state, playerIndex, requirement);
+  if (requirement.kind === "ANY_TARGET") {
+    const opponentTargetId = playerTargetIds.find((id) => id !== `player:${playerIndex}`);
+    if (opponentTargetId) return opponentTargetId;
+    return itemInstanceIds.length > 0 ? `item:${itemInstanceIds[Math.floor(random() * itemInstanceIds.length)]}` : undefined;
+  }
+  if (itemInstanceIds.length === 0) return undefined;
+  return `item:${itemInstanceIds[Math.floor(random() * itemInstanceIds.length)]}`;
+}
 
 // Pluggable so a future LLM/API-backed bot can be dropped in without
 // touching the engine or the turn-driving loop below — it only needs to
@@ -100,11 +151,16 @@ export function runBotStep(
   cardsById: Map<string, EngineCard>,
   spritesById: Map<string, SpriteEngineData> = new Map(),
   provider: BotDecisionProvider = simpleRulesBot,
+  random: () => number = Math.random,
 ): DigitalGameState {
   if (state.phase === "COMPLETE" || state.activePlayerIndex !== playerIndex || state.pendingCombat) {
     return state;
   }
 
+  // getLegalActions already excludes PLAY_ITEM/PLAY_SPELL for a card whose
+  // required target has no legal candidate at all (e.g. Coke with no
+  // opposing Item to remove) — the Bot, like a human, simply never sees
+  // that as an option to choose from.
   const legalActions = getLegalActions(state, playerIndex, cardsById);
   const action = provider.chooseAction(state, playerIndex, legalActions, cardsById);
 
@@ -112,10 +168,12 @@ export function runBotStep(
     return endTurn(state, cardsById, spritesById);
   }
   if (action.type === "PLAY_ITEM") {
-    return playItem(state, playerIndex, action.instanceId, cardsById, undefined, spritesById);
+    const target = chooseBotTarget(state, playerIndex, action.instanceId, cardsById, random);
+    return playItem(state, playerIndex, action.instanceId, cardsById, target, spritesById);
   }
   if (action.type === "PLAY_SPELL") {
-    return playSpell(state, playerIndex, action.instanceId, cardsById, undefined, spritesById);
+    const target = chooseBotTarget(state, playerIndex, action.instanceId, cardsById, random);
+    return playSpell(state, playerIndex, action.instanceId, cardsById, target, spritesById);
   }
   if (action.type === "ATTACK") {
     return declareAttack(state, playerIndex, action.instanceId, cardsById, spritesById);
@@ -137,6 +195,7 @@ export function runBotTurn(
   cardsById: Map<string, EngineCard>,
   spritesById: Map<string, SpriteEngineData> = new Map(),
   provider: BotDecisionProvider = simpleRulesBot,
+  random: () => number = Math.random,
 ): DigitalGameState {
   let state = initialState;
   const MAX_STEPS = 50;
@@ -146,7 +205,7 @@ export function runBotTurn(
       return state;
     }
     const before = state;
-    state = runBotStep(state, playerIndex, cardsById, spritesById, provider);
+    state = runBotStep(state, playerIndex, cardsById, spritesById, provider, random);
     if (state === before) return state; // no-op safety valve
   }
 

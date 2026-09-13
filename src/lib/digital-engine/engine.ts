@@ -7,7 +7,14 @@ import {
   type PlayerGameState,
   type StatBuffs,
 } from "./types";
-import { getCardAbilities, type AbilitySpec, type EffectSpec, type GameEvent } from "./abilities";
+import {
+  getCardAbilities,
+  getRequiredTarget,
+  type AbilitySpec,
+  type EffectSpec,
+  type GameEvent,
+  type TargetRequirement,
+} from "./abilities";
 import { getEquippedSprite, getSpriteTopicBonus, type SpriteEngineData } from "./sprite-abilities";
 
 // ---------------------------------------------------------------------------
@@ -1606,6 +1613,53 @@ export type LegalAction =
   | { type: "NO_DEFENDER" }
   | { type: "END_TURN" };
 
+// Every legal target for a given requirement, from `playerIndex`'s point of
+// view — the SAME candidate set the battlefield UI highlights for a human
+// to click, and what a Bot's decision-making checks before ever attempting
+// a targeted play. Shared here so both stay in sync by construction. Takes
+// only the minimal shape it needs (just each side's battlefield) so it
+// works equally on the full authoritative DigitalGameState and the
+// redacted VisibleGameState the client actually has.
+export function getTargetCandidateIds(
+  state: { players: readonly [{ battlefield: CardInstance[] }, { battlefield: CardInstance[] }] },
+  playerIndex: 0 | 1,
+  requirement: TargetRequirement,
+): { playerTargetIds: string[]; itemInstanceIds: string[] } {
+  if (!requirement) return { playerTargetIds: [], itemInstanceIds: [] };
+  const opponentIdx = opponentIndex(playerIndex);
+  const ownItemIds = state.players[playerIndex].battlefield.map((c) => c.instanceId);
+  const oppItemIds = state.players[opponentIdx].battlefield.map((c) => c.instanceId);
+  if (requirement.kind === "ANY_TARGET") {
+    return {
+      playerTargetIds: [`player:${playerIndex}`, `player:${opponentIdx}`],
+      itemInstanceIds: [...ownItemIds, ...oppItemIds],
+    };
+  }
+  if (requirement.scope === "OWN_ITEM") return { playerTargetIds: [], itemInstanceIds: ownItemIds };
+  if (requirement.scope === "OPPONENT_ITEM") return { playerTargetIds: [], itemInstanceIds: oppItemIds };
+  return { playerTargetIds: [], itemInstanceIds: [...ownItemIds, ...oppItemIds] };
+}
+
+// A card whose ON_PLAY effect requires a target (see getRequiredTarget)
+// isn't a legal play at all if nothing currently qualifies as that target
+// — e.g. Coke ("move target Item your opponent controls...") simply
+// cannot be cast if the opponent controls no Item. Cards with no target
+// requirement are always viable on this front (other limits still apply
+// elsewhere in getLegalActions).
+function hasPlayableTarget(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  cardId: string,
+  cardsById: Map<string, EngineCard>,
+): boolean {
+  const slug = cardsById.get(cardId)?.slug;
+  if (!slug) return true;
+  const requirement = getRequiredTarget(slug);
+  if (!requirement) return true;
+  const { playerTargetIds, itemInstanceIds } = getTargetCandidateIds(state, playerIndex, requirement);
+  return playerTargetIds.length + itemInstanceIds.length > 0;
+}
+
 export function getLegalActions(
   state: DigitalGameState,
   playerIndex: 0 | 1,
@@ -1640,14 +1694,22 @@ export function getLegalActions(
   if (canPlayItem) {
     for (const c of player.hand) {
       const cardType = requireCard(cardsById, c.cardId).type;
-      if (isPlayableAsItem(cardType) && !(cardType === "Item" && state.itemsLockedForRestOfGame)) {
+      if (
+        isPlayableAsItem(cardType) &&
+        !(cardType === "Item" && state.itemsLockedForRestOfGame) &&
+        hasPlayableTarget(state, playerIndex, c.cardId, cardsById)
+      ) {
         actions.push({ type: "PLAY_ITEM", instanceId: c.instanceId });
       }
     }
   }
   if (canPlaySpell) {
     for (const c of player.hand) {
-      if (requireCard(cardsById, c.cardId).type === "Spell" && !state.spellsLockedForRestOfGame) {
+      if (
+        requireCard(cardsById, c.cardId).type === "Spell" &&
+        !state.spellsLockedForRestOfGame &&
+        hasPlayableTarget(state, playerIndex, c.cardId, cardsById)
+      ) {
         actions.push({ type: "PLAY_SPELL", instanceId: c.instanceId });
       }
     }
@@ -1657,7 +1719,7 @@ export function getLegalActions(
   // regardless of canPlaySpell.
   if (player.spellsPlayableFromDiscardThisTurn && !state.spellsLockedForRestOfGame) {
     for (const c of player.discard) {
-      if (cardsById.get(c.cardId)?.type === "Spell") {
+      if (cardsById.get(c.cardId)?.type === "Spell" && hasPlayableTarget(state, playerIndex, c.cardId, cardsById)) {
         actions.push({ type: "PLAY_SPELL", instanceId: c.instanceId });
       }
     }

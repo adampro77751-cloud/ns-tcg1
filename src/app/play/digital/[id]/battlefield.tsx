@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/digital-match-actions";
 import type { VisibleGameState } from "@/lib/digital-engine/engine";
 import type { LegalAction } from "@/lib/digital-engine/engine";
+import { getTargetCandidateIds } from "@/lib/digital-engine/engine";
 import { getRequiredTarget, type TargetRequirement } from "@/lib/digital-engine/abilities";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { BotTurnDriver } from "./bot-turn-driver";
@@ -268,18 +269,10 @@ export function Battlefield({
   // battlefield (a card, or a player's health total) — the next click on
   // one of those submits the play with that target.
   function targetCandidates(requirement: TargetRequirement) {
-    if (!requirement) return { playerTargetIds: new Set<string>(), itemInstanceIds: new Set<string>() };
-    const ownItemIds = you.battlefield.map((c) => c.instanceId);
-    const oppItemIds = opponent.battlefield.map((c) => c.instanceId);
-    if (requirement.kind === "ANY_TARGET") {
-      return {
-        playerTargetIds: new Set([`player:${visible.viewerIndex}`, `player:${opponentIndex}`]),
-        itemInstanceIds: new Set([...ownItemIds, ...oppItemIds]),
-      };
-    }
-    if (requirement.scope === "OWN_ITEM") return { playerTargetIds: new Set<string>(), itemInstanceIds: new Set(ownItemIds) };
-    if (requirement.scope === "OPPONENT_ITEM") return { playerTargetIds: new Set<string>(), itemInstanceIds: new Set(oppItemIds) };
-    return { playerTargetIds: new Set<string>(), itemInstanceIds: new Set([...ownItemIds, ...oppItemIds]) };
+    // Shared with the server/Bot (engine.ts's getTargetCandidateIds) so the
+    // UI can never highlight a target the Bot wouldn't also consider legal.
+    const { playerTargetIds, itemInstanceIds } = getTargetCandidateIds(visible, visible.viewerIndex, requirement);
+    return { playerTargetIds: new Set(playerTargetIds), itemInstanceIds: new Set(itemInstanceIds) };
   }
 
   const pendingCandidates = pendingPlay ? targetCandidates(pendingPlay.requirement) : null;

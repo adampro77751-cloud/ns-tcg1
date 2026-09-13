@@ -16,7 +16,7 @@ import {
   activateStarDrop,
 } from "./engine";
 import { getRequiredTarget } from "./abilities";
-import { simpleRulesBot, runBotTurn, chooseBotDefender, runBotDefense } from "./bot";
+import { simpleRulesBot, runBotTurn, runBotStep, chooseBotDefender, runBotDefense } from "./bot";
 import { getSpriteTopicBonus, type SpriteEngineData } from "./sprite-abilities";
 import { IllegalActionError } from "./types";
 import type { DigitalGameState, EngineCard } from "./types";
@@ -1738,5 +1738,102 @@ describe("Mountain Mist + Cutlary combo", () => {
     // The combo is now assembled; the next real draw would start the chain
     // (already proven separately above) — this test only confirms School
     // is what assembled it, per spec.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Target-viability — a card whose ON_PLAY effect requires a target (Coke,
+// Reflection, ...) isn't a legal play at all if nothing currently
+// qualifies. Applies to both getLegalActions (so neither a human nor the
+// Bot ever sees it as an option) and the Bot's own target selection (picks
+// uniformly at random among whatever legal candidates DO exist, once the
+// card is actually playable).
+// ---------------------------------------------------------------------------
+
+describe("target viability", () => {
+  it("getLegalActions omits a targeted removal Spell entirely when there's nothing to target", () => {
+    const cards = new Map<string, EngineCard>([[COKE_TARGETABLE.id, COKE_TARGETABLE]]);
+    const state = createGameState({
+      matchId: "no-target-illegal",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [COKE_TARGETABLE.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] }, // no Item anywhere for Coke to hit
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const legal = getLegalActions(state, 0, cards);
+    expect(legal.some((a) => a.type === "PLAY_ITEM" || a.type === "PLAY_SPELL")).toBe(false);
+    expect(legal).toEqual([{ type: "END_TURN" }]);
+  });
+
+  it("becomes legal again as soon as a legal target exists", () => {
+    const cards = new Map<string, EngineCard>([[COKE_TARGETABLE.id, COKE_TARGETABLE], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "target-appears",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [COKE_TARGETABLE.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_ITEM")).toBe(false);
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "opp-item");
+    expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_ITEM")).toBe(true);
+  });
+
+  it("the Bot never attempts to play a targeted card with no legal target — it ends its turn instead", () => {
+    const cards = new Map<string, EngineCard>([[COKE_TARGETABLE.id, COKE_TARGETABLE]]);
+    const state = createGameState({
+      matchId: "bot-skips-unplayable",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [COKE_TARGETABLE.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const result = runBotStep(state, 0, cards);
+    // Coke wasn't (couldn't be) played — the hand is untouched — and the
+    // only remaining legal action (ending the turn) is what happened.
+    expect(result.players[0].hand.some((c) => c.cardId === COKE_TARGETABLE.id)).toBe(true);
+    expect(result.activePlayerIndex).toBe(1);
+  });
+
+  it("the Bot picks a target uniformly at random among legal candidates, not the 'strongest' heuristic", () => {
+    const cards = new Map<string, EngineCard>([[COKE_TARGETABLE.id, COKE_TARGETABLE], [ITEM_WEAK.id, ITEM_WEAK], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "bot-random-target",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [COKE_TARGETABLE.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "weak-item"); // the strongest-by-Attack heuristic would SKIP this
+    state = putOnBattlefield(state, 1, ITEM_STRONG.id, "strong-item"); // ...and always pick this one instead
+
+    // Candidates are collected in battlefield order (weak-item, then
+    // strong-item) — random() = 0 always picks index 0, the WEAK item.
+    // The engine's old "auto-heuristic" fallback (pickStrongestItem) would
+    // NEVER choose the weaker one over the stronger; this proves the
+    // Bot's own target choice is a genuinely separate, random mechanism.
+    const result = runBotStep(state, 0, cards, new Map(), simpleRulesBot, () => 0);
+    expect(result.players[1].battlefield.some((c) => c.instanceId === "weak-item")).toBe(false);
+    expect(result.players[1].battlefield.some((c) => c.instanceId === "strong-item")).toBe(true);
   });
 });
