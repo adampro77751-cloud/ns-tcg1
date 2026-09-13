@@ -326,13 +326,24 @@ function enterBattlefield(
   rawInstance: CardInstance,
   cardsById: Map<string, EngineCard>,
   depth: number,
+  chosenTarget?: string,
 ): DigitalGameState {
   const instance: CardInstance = { ...rawInstance, tired: false, buffs: { ...ZERO_BUFFS } };
   state = updatePlayer(state, playerIndex, (p) => ({ ...p, battlefield: [...p.battlefield, instance] }));
 
   const card = cardsById.get(instance.cardId);
   if (card) {
-    state = resolveAbilities(state, playerIndex, card.slug, "ON_PLAY", cardsById, instance.instanceId, depth);
+    state = resolveAbilities(
+      state,
+      playerIndex,
+      card.slug,
+      "ON_PLAY",
+      cardsById,
+      instance.instanceId,
+      depth,
+      Math.random,
+      chosenTarget,
+    );
   }
   if (depth < MAX_TRIGGER_DEPTH) {
     state = dispatchEvent(
@@ -358,7 +369,25 @@ type EffectRunCtx = {
   cardsById: Map<string, EngineCard>;
   depth: number;
   random: () => number;
+  /** A real target chosen by the human player who just played this card
+   *  from hand/discard — "player:0" | "player:1" | "item:<instanceId>".
+   *  Only set for the top-level ON_PLAY resolution of a directly-played
+   *  card (see playCard/enterBattlefield); undefined everywhere else, in
+   *  which case ANY_ITEM/OPPONENT_ITEM/OWN_ITEM/ANY_TARGET fall back to
+   *  their documented auto-heuristic. */
+  chosenTarget?: string;
 };
+
+function findInstanceAnywhere(
+  state: DigitalGameState,
+  instanceId: string,
+): { ownerIndex: 0 | 1; instance: CardInstance } | undefined {
+  for (const ownerIndex of [0, 1] as const) {
+    const instance = findCardInstance(state.players[ownerIndex].battlefield, instanceId);
+    if (instance) return { ownerIndex, instance };
+  }
+  return undefined;
+}
 
 function applyEffect(
   state: DigitalGameState,
@@ -380,6 +409,36 @@ function applyEffect(
     }
 
     case "DAMAGE": {
+      if (effect.target === "ANY_TARGET") {
+        const chosen = ctx.chosenTarget;
+        if (chosen?.startsWith("player:")) {
+          const targetIndex = chosen === "player:0" ? 0 : 1;
+          state = dealDamageWithTrigger(state, targetIndex, amount, controllerIndex, cardsById, depth);
+          return { state, resolvedTarget: chosen };
+        }
+        if (chosen?.startsWith("item:")) {
+          const found = findInstanceAnywhere(state, chosen.slice(5));
+          if (found) {
+            // PROVISIONAL rule (explicit user decision, not in the real
+            // rules — Items have no health/toughness stat): damage >= the
+            // Item's effective Defence destroys it; otherwise no effect.
+            const card = cardsById.get(found.instance.cardId);
+            const defence = card ? getEffectiveStat(found.instance, card, "defence") : 0;
+            if (amount >= defence) {
+              state = updatePlayer(state, found.ownerIndex, (p) => ({
+                ...p,
+                battlefield: removeFromZone(p.battlefield, found.instance.instanceId),
+                discard: [...p.discard, found.instance],
+              }));
+              state = afterMoveToDiscard(state, found.ownerIndex, found.instance, cardsById, depth);
+            }
+            return { state, resolvedTarget: chosen };
+          }
+        }
+        // No (valid) chosen target — bot/fallback path, same as before this feature existed.
+        state = dealDamageWithTrigger(state, opponentIdx, amount, controllerIndex, cardsById, depth);
+        return { state, resolvedTarget: null };
+      }
       const targetIndex = effect.target === "SELF" ? controllerIndex : opponentIdx;
       state = dealDamageWithTrigger(state, targetIndex, amount, controllerIndex, cardsById, depth);
       return { state, resolvedTarget: null };
@@ -414,7 +473,7 @@ function applyEffect(
     }
 
     case "MOVE_TO_DISCARD": {
-      const found = findItemForTarget(state, effect.target, controllerIndex, cardsById);
+      const found = findItemForTarget(state, effect.target, controllerIndex, cardsById, ctx.chosenTarget);
       if (!found) return { state, resolvedTarget: null };
       state = updatePlayer(state, found.ownerIndex, (p) => ({
         ...p,
@@ -532,7 +591,7 @@ function applyEffect(
         }
         return { state, resolvedTarget: null };
       }
-      const found = findItemForTarget(state, effect.target, controllerIndex, cardsById);
+      const found = findItemForTarget(state, effect.target, controllerIndex, cardsById, ctx.chosenTarget);
       if (!found) return { state, resolvedTarget: null };
       state = updatePlayer(state, found.ownerIndex, (p) => ({
         ...p,
@@ -557,7 +616,7 @@ function applyEffect(
         state = enterBattlefield(state, controllerIndex, best.instance, cardsById, depth);
         return { state, resolvedTarget: best.instance.instanceId };
       }
-      const found = findItemForTarget(state, effect.target, controllerIndex, cardsById);
+      const found = findItemForTarget(state, effect.target, controllerIndex, cardsById, ctx.chosenTarget);
       if (!found || found.ownerIndex === controllerIndex) return { state, resolvedTarget: null };
       state = updatePlayer(state, found.ownerIndex, (p) => ({
         ...p,
@@ -568,7 +627,7 @@ function applyEffect(
     }
 
     case "COPY": {
-      const found = findItemForTarget(state, effect.target, controllerIndex, cardsById);
+      const found = findItemForTarget(state, effect.target, controllerIndex, cardsById, ctx.chosenTarget);
       if (!found) return { state, resolvedTarget: null };
       const targetCardId = found.instance.cardId;
       state = updatePlayer(state, controllerIndex, (p) => ({
@@ -683,8 +742,26 @@ function findItemForTarget(
   target: EffectSpec["target"],
   controllerIndex: 0 | 1,
   cardsById: Map<string, EngineCard>,
+  chosenTarget?: string,
 ): { ownerIndex: 0 | 1; instance: CardInstance } | undefined {
   const opponentIdx = opponentIndex(controllerIndex);
+
+  if (chosenTarget?.startsWith("item:")) {
+    const found = findInstanceAnywhere(state, chosenTarget.slice(5));
+    if (found) {
+      // Validate the chosen instance actually matches the ability's scope
+      // — a client bug or stale UI shouldn't let a player pick an illegal
+      // target; fall through to the auto-heuristic if it doesn't match.
+      if (target === "OWN_ITEM" && found.ownerIndex !== controllerIndex) {
+        // invalid — ignore chosenTarget, fall through below
+      } else if (target === "OPPONENT_ITEM" && found.ownerIndex !== opponentIdx) {
+        // invalid — ignore chosenTarget, fall through below
+      } else {
+        return found;
+      }
+    }
+  }
+
   if (target === "OWN_ITEM") {
     return pickStrongestItem(
       state.players[controllerIndex].battlefield.map((instance) => ({ ownerIndex: controllerIndex, instance })),
@@ -734,6 +811,7 @@ function resolveAbilities(
   thisInstanceId: string | undefined,
   depth: number,
   random: () => number = Math.random,
+  chosenTarget?: string,
 ): DigitalGameState {
   if (depth >= MAX_TRIGGER_DEPTH) return state;
   const abilities = getCardAbilities(cardSlug).filter((a) => a.trigger === trigger);
@@ -743,7 +821,7 @@ function resolveAbilities(
       const result = applyEffect(
         state,
         effect,
-        { controllerIndex, thisInstanceId, cardsById, depth, random },
+        { controllerIndex, thisInstanceId, cardsById, depth, random, chosenTarget },
         previousTarget,
       );
       state = result.state;
@@ -820,6 +898,7 @@ function playCard(
   instanceId: string,
   cardsById: Map<string, EngineCard>,
   expectedType: "Item" | "Spell",
+  chosenTarget?: string,
 ): DigitalGameState {
   requireInProgress(state);
   requireTurn(state, playerIndex);
@@ -890,10 +969,10 @@ function playCard(
   };
 
   if (expectedType === "Item") {
-    state = enterBattlefield(state, playerIndex, inHand, cardsById, 0);
+    state = enterBattlefield(state, playerIndex, inHand, cardsById, 0, chosenTarget);
     state = dispatchEvent(state, "ITEM_PLAYED", { playerIndex }, cardsById, 1);
   } else {
-    state = resolveAbilities(state, playerIndex, card.slug, "ON_PLAY", cardsById, inHand.instanceId, 0);
+    state = resolveAbilities(state, playerIndex, card.slug, "ON_PLAY", cardsById, inHand.instanceId, 0, Math.random, chosenTarget);
     if (state.phase !== "COMPLETE") {
       state = updatePlayer(state, playerIndex, (p) => ({ ...p, discard: [...p.discard, inHand] }));
       state = afterMoveToDiscard(state, playerIndex, inHand, cardsById, 0);
@@ -909,8 +988,9 @@ export function playItem(
   playerIndex: 0 | 1,
   instanceId: string,
   cardsById: Map<string, EngineCard>,
+  chosenTarget?: string,
 ): DigitalGameState {
-  return playCard(state, playerIndex, instanceId, cardsById, "Item");
+  return playCard(state, playerIndex, instanceId, cardsById, "Item", chosenTarget);
 }
 
 export function playSpell(
@@ -918,8 +998,9 @@ export function playSpell(
   playerIndex: 0 | 1,
   instanceId: string,
   cardsById: Map<string, EngineCard>,
+  chosenTarget?: string,
 ): DigitalGameState {
-  return playCard(state, playerIndex, instanceId, cardsById, "Spell");
+  return playCard(state, playerIndex, instanceId, cardsById, "Spell", chosenTarget);
 }
 
 export function declareAttack(

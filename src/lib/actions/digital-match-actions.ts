@@ -454,16 +454,18 @@ async function runGameAction(
 export async function playDigitalItemAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   const instanceId = String(formData.get("instanceId") ?? "");
+  const targetId = formData.get("targetId");
   await runGameAction(matchId, (m, cardsById) =>
-    engPlayItem(m.state, m.playerIndex, instanceId, cardsById),
+    engPlayItem(m.state, m.playerIndex, instanceId, cardsById, targetId ? String(targetId) : undefined),
   );
 }
 
 export async function playDigitalSpellAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   const instanceId = String(formData.get("instanceId") ?? "");
+  const targetId = formData.get("targetId");
   await runGameAction(matchId, (m, cardsById) =>
-    engPlaySpell(m.state, m.playerIndex, instanceId, cardsById),
+    engPlaySpell(m.state, m.playerIndex, instanceId, cardsById, targetId ? String(targetId) : undefined),
   );
 }
 

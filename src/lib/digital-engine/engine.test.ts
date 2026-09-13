@@ -13,6 +13,7 @@ import {
   activateTimeBomb,
   activateStarDrop,
 } from "./engine";
+import { getRequiredTarget } from "./abilities";
 import { simpleRulesBot, runBotTurn } from "./bot";
 import { IllegalActionError } from "./types";
 import type { DigitalGameState, EngineCard } from "./types";
@@ -871,5 +872,122 @@ describe("Commander/Champion cards (provisional entry)", () => {
     state = endTurn(state, cards); // resets activationsThisTurn for player 0
     state = endTurn(state, cards); // back to player 0's turn
     expect(() => activateStarDrop(state, 0, "sd-1", cards, () => 0)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real target choice — "target Item" or "any target" (player or Item) —
+// for ON_PLAY effects played directly from hand. See abilities.ts's
+// getRequiredTarget and engine.ts's chosenTarget threading.
+// ---------------------------------------------------------------------------
+
+const COKE_TARGETABLE: EngineCard = { id: "coke-targetable", slug: "coke", type: "Item", attack: 0, defence: 0, speed: 0 };
+const PARKER: EngineCard = { id: "parker-1", slug: "parker", type: "Spell", attack: null, defence: null, speed: null };
+
+describe("player-chosen targets", () => {
+  it("getRequiredTarget identifies Item-target and any-target cards, and returns null otherwise", () => {
+    expect(getRequiredTarget("coke")).toEqual({ kind: "ITEM", scope: "OPPONENT_ITEM" });
+    expect(getRequiredTarget("parker")).toEqual({ kind: "ANY_TARGET" });
+    expect(getRequiredTarget("cricket-ball")).toBeNull();
+  });
+
+  it("Coke moves the player-CHOSEN opponent Item to discard, not just the auto-picked strongest", () => {
+    const cards = new Map<string, EngineCard>([
+      [COKE_TARGETABLE.id, COKE_TARGETABLE],
+      [ITEM_STRONG.id, ITEM_STRONG],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "coke-target",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [COKE_TARGETABLE.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 1, ITEM_STRONG.id, "s-inst");
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "w-inst"); // the auto-heuristic would pick this (strongest by Attack)
+    const coke = state.players[0].hand.find((c) => c.cardId === COKE_TARGETABLE.id)!;
+
+    // Explicitly choose the WEAKER item, opposite of what auto-targeting would pick.
+    state = playItem(state, 0, coke.instanceId, cards, "item:w-inst");
+
+    expect(state.players[1].discard.map((c) => c.instanceId)).toContain("w-inst");
+    expect(state.players[1].battlefield.map((c) => c.instanceId)).toContain("s-inst");
+  });
+
+  it("rejects a chosen Item target outside the ability's scope, falling back to auto-targeting", () => {
+    const cards = new Map<string, EngineCard>([
+      [COKE_TARGETABLE.id, COKE_TARGETABLE],
+      [ITEM_WEAK.id, ITEM_WEAK],
+    ]);
+    let state = createGameState({
+      matchId: "coke-invalid-target",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [COKE_TARGETABLE.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, ITEM_WEAK.id, "own-inst"); // controller's OWN Item — illegal for OPPONENT_ITEM scope
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "opp-inst");
+    const coke = state.players[0].hand.find((c) => c.cardId === COKE_TARGETABLE.id)!;
+
+    state = playItem(state, 0, coke.instanceId, cards, "item:own-inst");
+
+    // The illegal choice is ignored — falls back to the real opponent Item, never the controller's own.
+    expect(state.players[0].battlefield.map((c) => c.instanceId)).toContain("own-inst");
+    expect(state.players[1].discard.map((c) => c.instanceId)).toContain("opp-inst");
+  });
+
+  it("Parker's damage hits a player-CHOSEN target (player or Item)", () => {
+    const cards = new Map<string, EngineCard>([[PARKER.id, PARKER], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "parker-player-target",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [PARKER.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const parker = state.players[0].hand.find((c) => c.cardId === PARKER.id)!;
+    state = playSpell(state, 0, parker.instanceId, cards, "player:1");
+    expect(state.players[1].health).toBe(400); // 500 - 100
+  });
+
+  it("PROVISIONAL rule: damage targeting an Item destroys it only if amount >= its effective Defence", () => {
+    const cards = new Map<string, EngineCard>([[PARKER.id, PARKER], [ITEM_STRONG.id, ITEM_STRONG], [ITEM_WEAK.id, ITEM_WEAK]]);
+
+    // ITEM_STRONG has 10 Defence — 100 damage destroys it.
+    let state = createGameState({
+      matchId: "parker-item-target-destroyed",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [PARKER.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 1, ITEM_STRONG.id, "target-1");
+    const parker1 = state.players[0].hand.find((c) => c.cardId === PARKER.id)!;
+    state = playSpell(state, 0, parker1.instanceId, cards, "item:target-1");
+    expect(state.players[1].battlefield.map((c) => c.instanceId)).not.toContain("target-1");
+    expect(state.players[1].discard.map((c) => c.instanceId)).toContain("target-1");
+    expect(state.players[1].health).toBe(500); // health untouched — the Item absorbed it, not the player
   });
 });

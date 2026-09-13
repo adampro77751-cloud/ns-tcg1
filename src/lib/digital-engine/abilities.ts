@@ -4,11 +4,25 @@
 // parsed/guessed from free text).
 //
 // Where a card's real text requires a player CHOICE this engine has no
-// picker UI for yet (which target, which card to discard, "choose one"),
-// the effect auto-resolves with a documented, clearly-labelled heuristic
-// (e.g. "strongest available Item") rather than blocking the card
-// entirely. Every such simplification is called out in the final report,
-// not hidden.
+// picker UI for yet (which card to discard, "choose one"), the effect
+// auto-resolves with a documented, clearly-labelled heuristic rather than
+// blocking the card entirely. Every such simplification is called out in
+// the final report, not hidden.
+//
+// Real target CHOICE — "target Item" or "any target" — IS supported for
+// ON_PLAY effects played directly from hand/discard by a human: see
+// getRequiredTarget below and engine.ts's `chosenTarget` threading through
+// playItem/playSpell. A card's OTHER triggers (ATTACK_STARTED, CARD_DRAWN,
+// ITEM_ENTERED, ...) fire automatically mid-resolution of a different
+// action, with no natural moment for a picker UI, so those still
+// auto-resolve via the same heuristics as before.
+//
+// PROVISIONAL RULE (explicit user decision, not in the real rules):
+// damage effects can target an Item, not just a player. Since Items have
+// no health/toughness stat in the schema, "damage to an Item" is modeled
+// as: if the damage amount >= the Item's effective Defence, it's
+// destroyed (moved to discard); otherwise nothing happens. See engine.ts's
+// DAMAGE case.
 
 export type EffectType =
   | "DRAW"
@@ -54,9 +68,10 @@ export type GameEvent =
 export type EffectTarget =
   | "SELF" // the ability's controller
   | "OPPONENT" // the ability's controller's opponent
-  | "OPPONENT_ITEM" // an opponent's battlefield Item (auto: strongest by Attack)
-  | "OWN_ITEM" // the controller's own battlefield Item (auto: strongest by Attack)
-  | "ANY_ITEM" // any Item on either battlefield (auto: strongest by Attack)
+  | "OPPONENT_ITEM" // an opponent's battlefield Item (player-chosen when played from hand; else auto: strongest by Attack)
+  | "OWN_ITEM" // the controller's own battlefield Item (player-chosen when played from hand; else auto: strongest by Attack)
+  | "ANY_ITEM" // any Item on either battlefield (player-chosen when played from hand; else auto: strongest by Attack)
+  | "ANY_TARGET" // any player OR any Item on either battlefield (player-chosen when played from hand; else auto: the opponent player)
   | "SELF_DISCARD" // a card in the controller's own discard pile (auto: most recently discarded)
   | "SELF_DECK_ITEM" // an Item card in the controller's own deck (auto: first found; deck reshuffled after)
   | "SELF_HAND_ITEM" // an Item card in the controller's own hand (auto: first found)
@@ -124,26 +139,28 @@ export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
     },
   ],
 
-  // "Deal 100 damage to any target. Gain 100 health."
+  // "Deal 100 damage to any target. Gain 100 health." — "any target" gets
+  // a real target-picker (player or Item) via getRequiredTarget below.
   parker: [
     {
       trigger: "ON_PLAY",
       effects: [
-        { type: "DAMAGE", amount: 100, target: "OPPONENT" },
+        { type: "DAMAGE", amount: 100, target: "ANY_TARGET" },
         { type: "GAIN_HEALTH", amount: 100, target: "SELF" },
       ],
     },
   ],
 
   // "Draw 2 cards. Deal 100 damage to any target. Target opponent discards
-  // 2 cards." — the discard is worded as the OPPONENT'S choice in the real
-  // rules; auto-resolved as random since there's no reveal/choice UI yet.
+  // 2 cards." — the damage gets a real target-picker; the discard is
+  // worded as the OPPONENT'S choice in the real rules and stays
+  // auto-resolved as random since there's no reveal/choice UI for that.
   seagrim: [
     {
       trigger: "ON_PLAY",
       effects: [
         { type: "DRAW", amount: 2, target: "SELF" },
-        { type: "DAMAGE", amount: 100, target: "OPPONENT" },
+        { type: "DAMAGE", amount: 100, target: "ANY_TARGET" },
         { type: "DISCARD", amount: 2, target: "OPPONENT" },
       ],
     },
@@ -334,7 +351,7 @@ export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
       trigger: "ON_PLAY",
       effects: [
         { type: "CAST_FROM_DISCARD" },
-        { type: "DAMAGE", amount: 20, target: "OPPONENT" },
+        { type: "DAMAGE", amount: 20, target: "ANY_TARGET" },
       ],
     },
   ],
@@ -400,4 +417,27 @@ export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
 
 export function getCardAbilities(cardSlug: string): AbilitySpec[] {
   return CARD_ABILITIES[cardSlug] ?? [];
+}
+
+// What kind of real target choice (if any) this card's ON_PLAY needs from
+// the player who's about to play it — the UI uses this to show a picker
+// before submitting. Only ON_PLAY is inspected: every other trigger fires
+// automatically mid-resolution of some other action, with no picker
+// moment (see the top-of-file comment).
+export type TargetRequirement =
+  | { kind: "ITEM"; scope: "ANY_ITEM" | "OPPONENT_ITEM" | "OWN_ITEM" }
+  | { kind: "ANY_TARGET" }
+  | null;
+
+export function getRequiredTarget(cardSlug: string): TargetRequirement {
+  const onPlay = getCardAbilities(cardSlug).filter((a) => a.trigger === "ON_PLAY");
+  for (const ability of onPlay) {
+    for (const effect of ability.effects) {
+      if (effect.target === "ANY_TARGET") return { kind: "ANY_TARGET" };
+      if (effect.target === "ANY_ITEM" || effect.target === "OPPONENT_ITEM" || effect.target === "OWN_ITEM") {
+        return { kind: "ITEM", scope: effect.target };
+      }
+    }
+  }
+  return null;
 }
