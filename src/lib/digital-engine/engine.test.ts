@@ -15,7 +15,7 @@ import {
   activateTimeBomb,
   activateStarDrop,
 } from "./engine";
-import { getRequiredTarget } from "./abilities";
+import { getRequiredTarget, getAttackTriggerTarget } from "./abilities";
 import { simpleRulesBot, runBotTurn, runBotStep, chooseBotDefender, runBotDefense } from "./bot";
 import { getSpriteTopicBonus, type SpriteEngineData } from "./sprite-abilities";
 import { IllegalActionError } from "./types";
@@ -849,6 +849,58 @@ describe("Commander/Champion cards (provisional entry)", () => {
     expect(state.players[0].battlefield.length).toBe(battlefieldBefore + 1); // searched Item entered play
   });
 
+  it("getAttackTriggerTarget flags Cathedral Pergrines as a DECK_ITEM pick on attack (real search picker, not School's ON_PLAY one)", () => {
+    expect(getAttackTriggerTarget("cathedral-pergrines")).toEqual({ kind: "DECK_ITEM" });
+    expect(getRequiredTarget("cathedral-pergrines")).toBeNull(); // no ON_PLAY search — only on attack
+  });
+
+  it("honors an explicit deck: chosenTarget for Cathedral Pergrines' attack-time search, over the default first-found heuristic", () => {
+    const cards = new Map<string, EngineCard>([
+      [CATHEDRAL_PERGRINES.id, CATHEDRAL_PERGRINES],
+      [ITEM_WEAK.id, ITEM_WEAK],
+      [ITEM_STRONG.id, ITEM_STRONG],
+    ]);
+    let state = createGameState({
+      matchId: "dive-bomb-explicit-choice",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, CATHEDRAL_PERGRINES.id, "cp-explicit-1");
+    state = putInDeck(state, 0, ITEM_WEAK.id, "weak-in-deck-2");
+    state = putInDeck(state, 0, ITEM_STRONG.id, "strong-in-deck-2");
+    state = declareAttack(state, 0, "cp-explicit-1", cards, new Map(), "deck:strong-in-deck-2");
+
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "strong-in-deck-2")).toBe(true);
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "weak-in-deck-2")).toBe(false);
+  });
+
+  it("Cathedral Pergrines can still attack with no chosenTarget and no Item left to find (optional search, never blocks the attack)", () => {
+    const cards = new Map<string, EngineCard>([[CATHEDRAL_PERGRINES.id, CATHEDRAL_PERGRINES], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "dive-bomb-skip",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] }, // no Items left in deck after opening hand
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, CATHEDRAL_PERGRINES.id, "cp-skip-1");
+    const battlefieldBefore = state.players[0].battlefield.length;
+    state = declareAttack(state, 0, "cp-skip-1", cards);
+    expect(state.players[0].battlefield.length).toBe(battlefieldBefore); // nothing found, attack still resolved
+  });
+
   it("The Curriculum locks Items for the rest of the match, for both players", () => {
     const cards = new Map<string, EngineCard>([[THE_CURRICULUM.id, THE_CURRICULUM], [ITEM_WEAK.id, ITEM_WEAK]]);
     let state = createGameState({
@@ -1562,6 +1614,172 @@ describe("School", () => {
     });
     expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_SPELL")).toBe(false);
     state = putInDeck(state, 0, ITEM_STRONG.id, "strong-in-deck");
+    expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_SPELL")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real search-your-discard picker (discard:<id1>,<id2>,... chosenTarget) —
+// Old Book, Blast From The Past (RETURN_TO_HAND), Chemistry Lesson
+// (RETURN_TO_PLAY) and Library (CAST_FROM_DISCARD) all target the caller's
+// own, already client-visible discard pile.
+// ---------------------------------------------------------------------------
+
+const OLD_BOOK: EngineCard = { id: "old-book-1", slug: "old-book", type: "Spell", attack: null, defence: null, speed: null };
+const BLAST_FROM_THE_PAST: EngineCard = { id: "blast-from-the-past-1", slug: "blast-from-the-past", type: "Spell", attack: null, defence: null, speed: null };
+const CHEMISTRY_LESSON: EngineCard = { id: "chemistry-lesson-1", slug: "chemistry-lesson", type: "Spell", attack: null, defence: null, speed: null };
+
+describe("real discard-pile picker (discard: chosenTarget)", () => {
+  it("getRequiredTarget flags Old Book/Chemistry Lesson as a single DISCARD_CARD pick, and Blast From The Past as amount 2", () => {
+    expect(getRequiredTarget("old-book")).toEqual({ kind: "DISCARD_CARD", filter: "ANY", amount: 1 });
+    expect(getRequiredTarget("blast-from-the-past")).toEqual({ kind: "DISCARD_CARD", filter: "ANY", amount: 2 });
+    expect(getRequiredTarget("chemistry-lesson")).toEqual({ kind: "DISCARD_CARD", filter: "ITEM", amount: 1 });
+    expect(getRequiredTarget("library")).toEqual({ kind: "DISCARD_CARD", filter: "SPELL", amount: 1 });
+  });
+
+  it("Old Book honors an explicit discard: chosenTarget over the most-recently-discarded default", () => {
+    const cards = new Map<string, EngineCard>([[OLD_BOOK.id, OLD_BOOK], [ITEM_WEAK.id, ITEM_WEAK], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "old-book-explicit",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [OLD_BOOK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putInDiscard(state, 0, ITEM_WEAK.id, "weak-disc-1");
+    state = putInDiscard(state, 0, ITEM_STRONG.id, "strong-disc-1"); // most recently discarded
+    const oldBook = state.players[0].hand.find((c) => c.cardId === OLD_BOOK.id)!;
+    // Explicitly pick the OLDER one, proving the choice overrides "most recent".
+    state = playSpell(state, 0, oldBook.instanceId, cards, "discard:weak-disc-1");
+    expect(state.players[0].hand.some((c) => c.instanceId === "weak-disc-1")).toBe(true);
+    expect(state.players[0].discard.some((c) => c.instanceId === "strong-disc-1")).toBe(true);
+  });
+
+  it("Blast From The Past honors an explicit multi-card discard: chosenTarget (amount 2)", () => {
+    const cards = new Map<string, EngineCard>([[BLAST_FROM_THE_PAST.id, BLAST_FROM_THE_PAST], [ITEM_WEAK.id, ITEM_WEAK], [ITEM_STRONG.id, ITEM_STRONG], [SPELL_A.id, SPELL_A]]);
+    let state = createGameState({
+      matchId: "blast-explicit",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [BLAST_FROM_THE_PAST.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putInDiscard(state, 0, ITEM_WEAK.id, "weak-disc-2");
+    state = putInDiscard(state, 0, ITEM_STRONG.id, "strong-disc-2");
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-disc-2"); // left behind
+    const blast = state.players[0].hand.find((c) => c.cardId === BLAST_FROM_THE_PAST.id)!;
+    state = playSpell(state, 0, blast.instanceId, cards, "discard:weak-disc-2,strong-disc-2");
+    expect(state.players[0].hand.map((c) => c.instanceId)).toEqual(
+      expect.arrayContaining(["weak-disc-2", "strong-disc-2"]),
+    );
+    expect(state.players[0].discard.map((c) => c.instanceId)).toContain("spell-disc-2");
+    expect(state.players[0].discard.map((c) => c.instanceId)).not.toContain("weak-disc-2");
+  });
+
+  it("Chemistry Lesson honors an explicit discard: chosenTarget over the default first-Item-found heuristic", () => {
+    const cards = new Map<string, EngineCard>([[CHEMISTRY_LESSON.id, CHEMISTRY_LESSON], [ITEM_WEAK.id, ITEM_WEAK], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "chem-lesson-explicit",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [CHEMISTRY_LESSON.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putInDiscard(state, 0, ITEM_WEAK.id, "weak-disc-3"); // discarded first, the default heuristic's pick
+    state = putInDiscard(state, 0, ITEM_STRONG.id, "strong-disc-3");
+    const chem = state.players[0].hand.find((c) => c.cardId === CHEMISTRY_LESSON.id)!;
+    state = playSpell(state, 0, chem.instanceId, cards, "discard:strong-disc-3");
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "strong-disc-3")).toBe(true);
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "weak-disc-3")).toBe(false);
+  });
+
+  it("Library honors an explicit discard: chosenTarget for which Spell to recast, over the most-recently-discarded default", () => {
+    const cards = new Map<string, EngineCard>([
+      [LIBRARY.id, LIBRARY],
+      [RECASTABLE_SPELL.id, RECASTABLE_SPELL],
+      [SPELL_A.id, SPELL_A],
+    ]);
+    let state = createGameState({
+      matchId: "library-explicit",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [LIBRARY.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = forceToHand(state, 0, LIBRARY.id);
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-a-disc-3"); // most recently discarded — NOT the chosen one
+    state = putInDiscard(state, 0, RECASTABLE_SPELL.id, "recast-explicit-1");
+    const library = state.players[0].hand.find((c) => c.cardId === LIBRARY.id)!;
+    const handBefore = state.players[0].hand.length;
+    state = playItem(state, 0, library.instanceId, cards, "discard:spell-a-disc-3");
+    // Both Spells end up back in discard after resolving (recasting
+    // doesn't consume the card) — the real proof the explicit choice was
+    // honored is that SPELL_A (no ability) was cast instead of the
+    // most-recently-discarded Cricket Ball (draws a card): hand size just
+    // drops by 1 (Library leaves the hand, nothing replaces it), unlike
+    // the earlier default-heuristic Cricket-Ball-recast test where it's
+    // net unchanged.
+    expect(state.players[0].discard.map((c) => c.instanceId)).toContain("recast-explicit-1");
+    expect(state.players[0].discard.map((c) => c.instanceId)).toContain("spell-a-disc-3");
+    expect(state.players[0].hand).toHaveLength(handBefore - 1);
+  });
+
+  it("hasPlayableTarget / getLegalActions correctly gates Old Book on discard contents", () => {
+    const cards = new Map<string, EngineCard>([[OLD_BOOK.id, OLD_BOOK], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "old-book-gate",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [OLD_BOOK.id] }, // empty discard
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_SPELL")).toBe(false);
+    state = putInDiscard(state, 0, ITEM_WEAK.id, "weak-disc-gate");
+    expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_SPELL")).toBe(true);
+  });
+
+  it("Chemistry Lesson is not playable when the discard pile has no Item (filter-specific gating)", () => {
+    const cards = new Map<string, EngineCard>([[CHEMISTRY_LESSON.id, CHEMISTRY_LESSON], [SPELL_A.id, SPELL_A], [ITEM_WEAK.id, ITEM_WEAK]]);
+    let state = createGameState({
+      matchId: "chem-lesson-gate",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [CHEMISTRY_LESSON.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-a-disc-gate"); // discard has a Spell, but no Item
+    expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_SPELL")).toBe(false);
+    state = putInDiscard(state, 0, ITEM_WEAK.id, "weak-disc-gate-2");
     expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_SPELL")).toBe(true);
   });
 });

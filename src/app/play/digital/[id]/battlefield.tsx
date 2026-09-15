@@ -17,7 +17,7 @@ import {
 import type { VisibleGameState } from "@/lib/digital-engine/engine";
 import type { LegalAction } from "@/lib/digital-engine/engine";
 import { getTargetCandidateIds } from "@/lib/digital-engine/engine";
-import { getRequiredTarget, type TargetRequirement } from "@/lib/digital-engine/abilities";
+import { getRequiredTarget, getAttackTriggerTarget, type TargetRequirement } from "@/lib/digital-engine/abilities";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { BotTurnDriver } from "./bot-turn-driver";
 
@@ -181,11 +181,20 @@ function DeckSearchModal({
   instanceId,
   action,
   onClose,
+  allowSkip,
 }: {
   matchId: string;
   instanceId: string;
   action: PlayFormAction;
   onClose: () => void;
+  /** Cathedral Pergrines' Dive Bomb is worded as "you MAY discard a card
+   *  [and search]" — unlike School, the underlying action (the attack)
+   *  must still go through even if there's nothing to find, or the
+   *  player would never be able to attack once their deck ran out of
+   *  Items. Adds a button that submits `action` with no targetId at all,
+   *  letting the engine's own fallback (currently a no-op-safe "first
+   *  Item found, or nothing") take over. */
+  allowSkip?: boolean;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<SearchableDeckCard[] | null>(null);
@@ -208,11 +217,11 @@ function DeckSearchModal({
 
   const filtered = (items ?? []).filter((c) => c.name.toLowerCase().includes(query.toLowerCase()));
 
-  async function pick(deckInstanceId: string) {
+  async function submit(targetId: string | null) {
     const formData = new FormData();
     formData.set("matchId", matchId);
     formData.set("instanceId", instanceId);
-    formData.set("targetId", `deck:${deckInstanceId}`);
+    if (targetId) formData.set("targetId", targetId);
     onClose();
     await action(formData);
     router.refresh();
@@ -234,6 +243,15 @@ function DeckSearchModal({
             ✕
           </button>
         </div>
+        {allowSkip && (
+          <button
+            type="button"
+            onClick={() => submit(null)}
+            className="mt-3 w-full rounded border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
+          >
+            Attack without searching
+          </button>
+        )}
         <input
           type="text"
           value={query}
@@ -250,7 +268,7 @@ function DeckSearchModal({
               <button
                 key={c.instanceId}
                 type="button"
-                onClick={() => pick(c.instanceId)}
+                onClick={() => submit(`deck:${c.instanceId}`)}
                 className="flex w-28 flex-col items-center gap-1 text-center"
               >
                 <div className="aspect-[5/7] w-28 overflow-hidden rounded-lg border-2 border-violet-300 bg-white shadow transition hover:scale-105">
@@ -284,6 +302,125 @@ function DeckSearchModal({
   );
 }
 
+// Old Book / Blast From The Past / Chemistry Lesson / Library all target
+// the caller's OWN discard pile, which (unlike deck contents) is already
+// fully visible to the client — no server round-trip needed to show it,
+// just a real click-to-select picker instead of the old "most recently
+// discarded" / "first Item found" auto-heuristics.
+function DiscardPickerModal({
+  matchId,
+  instanceId,
+  action,
+  requirement,
+  discard,
+  cardsById,
+  onClose,
+}: {
+  matchId: string;
+  instanceId: string;
+  action: PlayFormAction;
+  requirement: Extract<TargetRequirement, { kind: "DISCARD_CARD" }>;
+  discard: { instanceId: string; cardId: string }[];
+  cardsById: Record<string, CardDisplay>;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [selected, setSelected] = useState<string[]>([]);
+
+  const eligible = discard.filter((c) => {
+    if (requirement.filter === "ANY") return true;
+    const wanted = requirement.filter === "ITEM" ? "Item" : "Spell";
+    return cardsById[c.cardId]?.type === wanted;
+  });
+
+  async function submit(ids: string[]) {
+    const formData = new FormData();
+    formData.set("matchId", matchId);
+    formData.set("instanceId", instanceId);
+    if (ids.length > 0) formData.set("targetId", `discard:${ids.join(",")}`);
+    onClose();
+    await action(formData);
+    router.refresh();
+  }
+
+  function toggle(id: string) {
+    if (requirement.amount <= 1) {
+      submit([id]);
+      return;
+    }
+    setSelected((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= requirement.amount) return prev;
+      return [...prev, id];
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl border-4 border-white bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">
+            Choose {requirement.amount > 1 ? `up to ${requirement.amount} cards` : "a card"} from your discard
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full px-2 py-1 text-sm font-bold text-slate-500 hover:bg-slate-100"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          {eligible.map((c) => {
+            const card = cardsById[c.cardId];
+            const isSelected = selected.includes(c.instanceId);
+            return (
+              <button
+                key={c.instanceId}
+                type="button"
+                onClick={() => toggle(c.instanceId)}
+                className="flex w-28 flex-col items-center gap-1 text-center"
+              >
+                <div
+                  className={`aspect-[5/7] w-28 overflow-hidden rounded-lg border-2 bg-white shadow transition hover:scale-105 ${
+                    isSelected ? "border-emerald-400 ring-4 ring-emerald-300" : "border-amber-300"
+                  }`}
+                >
+                  {card?.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={card.image} alt={card.name} className="h-full w-full object-contain" />
+                  ) : (
+                    <span className="flex h-full items-center justify-center p-1 text-xs font-semibold text-slate-600">
+                      {card?.name ?? "Unknown"}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs font-semibold leading-tight">{card?.name ?? "Unknown"}</p>
+              </button>
+            );
+          })}
+          {eligible.length === 0 && (
+            <p className="text-sm text-slate-400">Nothing eligible in your discard pile.</p>
+          )}
+        </div>
+        {requirement.amount > 1 && (
+          <button
+            type="button"
+            disabled={selected.length === 0}
+            onClick={() => submit(selected)}
+            className="mt-4 w-full rounded bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-40"
+          >
+            Confirm ({selected.length}/{requirement.amount})
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function Battlefield({
   matchId,
   visible,
@@ -307,7 +444,14 @@ export function Battlefield({
   const [enlarged, setEnlarged] = useState<CardDisplay | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [pendingPlay, setPendingPlay] = useState<PendingPlay | null>(null);
-  const [deckSearch, setDeckSearch] = useState<{ instanceId: string; action: PlayFormAction } | null>(null);
+  const [deckSearch, setDeckSearch] = useState<{ instanceId: string; action: PlayFormAction; allowSkip?: boolean } | null>(
+    null,
+  );
+  const [discardPick, setDiscardPick] = useState<{
+    instanceId: string;
+    action: PlayFormAction;
+    requirement: Extract<TargetRequirement, { kind: "DISCARD_CARD" }>;
+  } | null>(null);
   const [openDiscard, setOpenDiscard] = useState<0 | 1 | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -429,6 +573,18 @@ export function Battlefield({
           className="rounded bg-violet-600 px-3 py-1 text-xs font-bold text-white hover:bg-violet-700"
         >
           Play (search deck)
+        </button>
+      );
+    }
+
+    if (requirement.kind === "DISCARD_CARD") {
+      return (
+        <button
+          type="button"
+          onClick={() => setDiscardPick({ instanceId, action, requirement })}
+          className="rounded bg-violet-600 px-3 py-1 text-xs font-bold text-white hover:bg-violet-700"
+        >
+          Play (choose from discard)
         </button>
       );
     }
@@ -641,18 +797,27 @@ export function Battlefield({
                   selectable={pendingCandidates?.itemInstanceIds.has(c.instanceId)}
                   onSelect={() => submitTarget(`item:${c.instanceId}`)}
                 />
-                {attackableInstanceIds.has(c.instanceId) && (
-                  <form action={attackDigitalAction}>
-                    <input type="hidden" name="matchId" value={matchId} />
-                    <input type="hidden" name="instanceId" value={c.instanceId} />
+                {attackableInstanceIds.has(c.instanceId) &&
+                  (getAttackTriggerTarget(cardsById[c.cardId]?.slug ?? "")?.kind === "DECK_ITEM" ? (
                     <button
-                      type="submit"
+                      type="button"
+                      onClick={() => setDeckSearch({ instanceId: c.instanceId, action: attackDigitalAction, allowSkip: true })}
                       className="rounded bg-red-600 px-3 py-1 text-xs font-bold text-white hover:bg-red-700"
                     >
-                      Attack
+                      Attack (search deck)
                     </button>
-                  </form>
-                )}
+                  ) : (
+                    <form action={attackDigitalAction}>
+                      <input type="hidden" name="matchId" value={matchId} />
+                      <input type="hidden" name="instanceId" value={c.instanceId} />
+                      <button
+                        type="submit"
+                        className="rounded bg-red-600 px-3 py-1 text-xs font-bold text-white hover:bg-red-700"
+                      >
+                        Attack
+                      </button>
+                    </form>
+                  ))}
                 {activatableInstanceIds.has(c.instanceId) && (
                   <form action={activateTimeBombAction}>
                     <input type="hidden" name="matchId" value={matchId} />
@@ -798,7 +963,20 @@ export function Battlefield({
           matchId={matchId}
           instanceId={deckSearch.instanceId}
           action={deckSearch.action}
+          allowSkip={deckSearch.allowSkip}
           onClose={() => setDeckSearch(null)}
+        />
+      )}
+
+      {discardPick && (
+        <DiscardPickerModal
+          matchId={matchId}
+          instanceId={discardPick.instanceId}
+          action={discardPick.action}
+          requirement={discardPick.requirement}
+          discard={you.discard}
+          cardsById={cardsById}
+          onClose={() => setDiscardPick(null)}
         />
       )}
 

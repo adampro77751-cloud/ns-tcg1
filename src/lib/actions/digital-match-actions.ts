@@ -586,8 +586,9 @@ export async function playDigitalSpellAction(formData: FormData) {
 export async function attackDigitalAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   const instanceId = String(formData.get("instanceId") ?? "");
+  const targetId = formData.get("targetId");
   await runGameAction(matchId, (m, cardsById, spritesById) =>
-    engDeclareAttack(m.state, m.playerIndex, instanceId, cardsById, spritesById),
+    engDeclareAttack(m.state, m.playerIndex, instanceId, cardsById, spritesById, targetId ? String(targetId) : undefined),
   );
 }
 

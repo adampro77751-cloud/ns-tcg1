@@ -556,6 +556,17 @@ function dealDamageMaybeEnqueue(
   return dealDamageWithTrigger(state, targetIndex, amount, dealtByIndex, cardsById, depth, ctx.spritesById);
 }
 
+// Parses a "<prefix><id1>,<id2>,..." chosenTarget into its list of
+// instanceIds, or undefined if chosenTarget doesn't start with that
+// prefix at all (meaning: no real choice was made — the caller should
+// fall back to its own auto-heuristic). Shared by every discard-picker
+// effect (RETURN_TO_HAND, RETURN_TO_PLAY's SELF_DISCARD default,
+// CAST_FROM_DISCARD) so they all parse the "discard:" prefix identically.
+function parseChosenInstanceIds(chosenTarget: string | undefined, prefix: string): string[] | undefined {
+  if (!chosenTarget?.startsWith(prefix)) return undefined;
+  return chosenTarget.slice(prefix.length).split(",").filter(Boolean);
+}
+
 function findInstanceAnywhere(
   state: DigitalGameState,
   instanceId: string,
@@ -679,11 +690,23 @@ function applyEffect(
     case "RETURN_TO_HAND": {
       const targetIndex = controllerIndex; // only used from own discard in this pass
       const discard = state.players[targetIndex].discard;
-      const n = Math.min(amount, discard.length);
-      const picked = discard.slice(-n); // most recently discarded
+      // A human gets a real discard-picker (getRequiredTarget's
+      // DISCARD_CARD kind) — "discard:<id1>,<id2>,..." is that choice,
+      // validated against this exact discard pile and capped at `amount`
+      // before trusting it. Falls back to "most recently discarded" (the
+      // old heuristic) for the Bot, or if the choice is missing/stale.
+      const chosenIds = parseChosenInstanceIds(ctx.chosenTarget, "discard:");
+      const chosenPicked = chosenIds
+        ? chosenIds
+            .slice(0, amount)
+            .map((id) => discard.find((c) => c.instanceId === id))
+            .filter((c): c is CardInstance => c !== undefined)
+        : undefined;
+      const picked = chosenPicked && chosenPicked.length > 0 ? chosenPicked : discard.slice(-Math.min(amount, discard.length));
+      const pickedIds = new Set(picked.map((c) => c.instanceId));
       state = updatePlayer(state, targetIndex, (p) => ({
         ...p,
-        discard: p.discard.slice(0, p.discard.length - n),
+        discard: p.discard.filter((c) => !pickedIds.has(c.instanceId)),
         hand: [...p.hand, ...picked],
       }));
       return { state, resolvedTarget: null };
@@ -729,9 +752,15 @@ function applyEffect(
         }
         return { state, resolvedTarget: null };
       }
-      // Default: SELF_DISCARD — an Item from own discard.
+      // Default: SELF_DISCARD — an Item from own discard. A human gets a
+      // real discard-picker (DISCARD_CARD); falls back to "first Item
+      // found" for the Bot or a missing/stale choice.
       const discard = state.players[controllerIndex].discard;
-      const item = discard.find((c) => cardsById.get(c.cardId)?.type === "Item");
+      const chosenDiscardId = parseChosenInstanceIds(ctx.chosenTarget, "discard:")?.[0];
+      const chosenItem = chosenDiscardId
+        ? discard.find((c) => c.instanceId === chosenDiscardId && cardsById.get(c.cardId)?.type === "Item")
+        : undefined;
+      const item = chosenItem ?? discard.find((c) => cardsById.get(c.cardId)?.type === "Item");
       if (!item) return { state, resolvedTarget: null };
       state = updatePlayer(state, controllerIndex, (p) => ({ ...p, discard: removeFromZone(p.discard, item.instanceId) }));
       state = enterBattlefield(state, controllerIndex, item, cardsById, depth, undefined, ctx.spritesById);
@@ -912,7 +941,14 @@ function applyEffect(
     // SPELL_PLAYED event fires for this recast).
     case "CAST_FROM_DISCARD": {
       const discard = state.players[controllerIndex].discard;
-      const spell = [...discard].reverse().find((c) => cardsById.get(c.cardId)?.type === "Spell");
+      // A human gets a real discard-picker (DISCARD_CARD, filtered to
+      // Spells); falls back to "most recently discarded Spell" for the
+      // Bot or a missing/stale choice.
+      const chosenSpellId = parseChosenInstanceIds(ctx.chosenTarget, "discard:")?.[0];
+      const chosenSpell = chosenSpellId
+        ? discard.find((c) => c.instanceId === chosenSpellId && cardsById.get(c.cardId)?.type === "Spell")
+        : undefined;
+      const spell = chosenSpell ?? [...discard].reverse().find((c) => cardsById.get(c.cardId)?.type === "Spell");
       if (!spell) return { state, resolvedTarget: null };
       const spellCard = cardsById.get(spell.cardId);
       if (!spellCard) return { state, resolvedTarget: null };
@@ -1310,6 +1346,7 @@ export function declareAttack(
   attackerInstanceId: string,
   cardsById: Map<string, EngineCard>,
   spritesById: Map<string, SpriteEngineData> = new Map(),
+  chosenTarget?: string,
 ): DigitalGameState {
   requireInProgress(state);
   requireTurn(state, playerIndex);
@@ -1344,6 +1381,9 @@ export function declareAttack(
 
   // "When Bio Worm/Cathedral Pergrines attacks, ..." — self-only, fires at
   // declaration regardless of how the defender choice later resolves.
+  // Cathedral Pergrines' Dive Bomb (SEARCH_DECK_TO_PLAY) gets the same
+  // real search-your-deck picker School does — `chosenTarget` ("deck:<id>")
+  // flows through here exactly like it does for playItem/playSpell.
   state = resolveAbilities(
     state,
     playerIndex,
@@ -1353,7 +1393,7 @@ export function declareAttack(
     attackerInstanceId,
     0,
     Math.random,
-    undefined,
+    chosenTarget,
     spritesById,
   );
   if (state.phase === "COMPLETE") return state;
@@ -1634,10 +1674,14 @@ export function getTargetCandidateIds(
   playerIndex: 0 | 1,
   requirement: TargetRequirement,
 ): { playerTargetIds: string[]; itemInstanceIds: string[] } {
-  // DECK_ITEM (School) isn't a battlefield/player target at all — it's
-  // resolved via a dedicated deck-search picker (see the "deck:" chosenTarget
-  // prefix in engine.ts's SEARCH_DECK_TO_PLAY case), not this function.
-  if (!requirement || requirement.kind === "DECK_ITEM") return { playerTargetIds: [], itemInstanceIds: [] };
+  // DECK_ITEM (School/Cathedral Pergrines) and DISCARD_CARD (Old Book,
+  // Blast From The Past, Chemistry Lesson, Library) aren't battlefield/
+  // player targets at all — they're resolved via their own dedicated
+  // pickers ("deck:"/"discard:" chosenTarget prefixes in the relevant
+  // effect cases below), not this function.
+  if (!requirement || requirement.kind === "DECK_ITEM" || requirement.kind === "DISCARD_CARD") {
+    return { playerTargetIds: [], itemInstanceIds: [] };
+  }
   const opponentIdx = opponentIndex(playerIndex);
   const ownItemIds = state.players[playerIndex].battlefield.map((c) => c.instanceId);
   const oppItemIds = state.players[opponentIdx].battlefield.map((c) => c.instanceId);
@@ -1671,8 +1715,21 @@ function hasPlayableTarget(
   if (requirement.kind === "DECK_ITEM") {
     return state.players[playerIndex].deck.some((c) => cardsById.get(c.cardId)?.type === "Item");
   }
+  if (requirement.kind === "DISCARD_CARD") {
+    return state.players[playerIndex].discard.some((c) => matchesDiscardFilter(c, requirement.filter, cardsById));
+  }
   const { playerTargetIds, itemInstanceIds } = getTargetCandidateIds(state, playerIndex, requirement);
   return playerTargetIds.length + itemInstanceIds.length > 0;
+}
+
+function matchesDiscardFilter(
+  instance: CardInstance,
+  filter: "ANY" | "ITEM" | "SPELL",
+  cardsById: Map<string, EngineCard>,
+): boolean {
+  if (filter === "ANY") return true;
+  const wantedType = filter === "ITEM" ? "Item" : "Spell";
+  return cardsById.get(instance.cardId)?.type === wantedType;
 }
 
 export function getLegalActions(

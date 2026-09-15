@@ -426,26 +426,42 @@ export function getCardAbilities(cardSlug: string): AbilitySpec[] {
   return CARD_ABILITIES[cardSlug] ?? [];
 }
 
-// What kind of real target choice (if any) this card's ON_PLAY needs from
-// the player who's about to play it — the UI uses this to show a picker
-// before submitting. Only ON_PLAY is inspected: every other trigger fires
-// automatically mid-resolution of some other action, with no picker
-// moment (see the top-of-file comment).
+// What kind of real target choice (if any) a card needs from the player
+// at the one moment there's a natural UI prompt to attach it to — playing
+// it (ON_PLAY, via getRequiredTarget) or declaring an attack with it
+// (ATTACK_STARTED, via getAttackTriggerTarget, e.g. Cathedral Pergrines'
+// Dive Bomb). Every OTHER trigger fires automatically mid-resolution of
+// some other action, with no picker moment (see the top-of-file comment).
 export type TargetRequirement =
   | { kind: "ITEM"; scope: "ANY_ITEM" | "OPPONENT_ITEM" | "OWN_ITEM" }
   | { kind: "ANY_TARGET" }
-  // School ("search your deck for an Item card and put it under your
-  // control"): the choice is over the CONTROLLER'S OWN deck contents, not
-  // a battlefield/player — a genuinely different picker (search + list,
-  // not click-a-card-on-the-battlefield), so it gets its own kind.
+  // School / Cathedral Pergrines ("search your deck for an Item..."): the
+  // choice is over the CONTROLLER'S OWN deck contents, not a battlefield/
+  // player — a genuinely different picker (search + list, not
+  // click-a-card-on-the-battlefield), so it gets its own kind.
   | { kind: "DECK_ITEM" }
+  // Old Book / Blast From The Past ("return card(s) from your discard to
+  // hand"), Chemistry Lesson ("put an Item from your discard into play"),
+  // Library ("play target Spell from your discard"): the choice is over
+  // the CONTROLLER'S OWN discard pile — already fully visible client-side
+  // (unlike deck contents), so this picker needs no extra data fetch.
+  // `filter` narrows which cards in discard are legal choices; `amount` is
+  // how many to pick (only Blast From The Past picks more than one).
+  | { kind: "DISCARD_CARD"; filter: "ANY" | "ITEM" | "SPELL"; amount: number }
   | null;
 
-export function getRequiredTarget(cardSlug: string): TargetRequirement {
-  const onPlay = getCardAbilities(cardSlug).filter((a) => a.trigger === "ON_PLAY");
-  for (const ability of onPlay) {
+function findRequiredTarget(cardSlug: string, trigger: AbilitySpec["trigger"]): TargetRequirement {
+  const abilities = getCardAbilities(cardSlug).filter((a) => a.trigger === trigger);
+  for (const ability of abilities) {
     for (const effect of ability.effects) {
       if (effect.type === "SEARCH_DECK_TO_PLAY") return { kind: "DECK_ITEM" };
+      if (effect.type === "CAST_FROM_DISCARD") return { kind: "DISCARD_CARD", filter: "SPELL", amount: 1 };
+      if (effect.type === "RETURN_TO_HAND" && effect.target === "SELF_DISCARD") {
+        return { kind: "DISCARD_CARD", filter: "ANY", amount: effect.amount ?? 1 };
+      }
+      if (effect.type === "RETURN_TO_PLAY" && (effect.target === undefined || effect.target === "SELF_DISCARD")) {
+        return { kind: "DISCARD_CARD", filter: "ITEM", amount: 1 };
+      }
       if (effect.target === "ANY_TARGET") return { kind: "ANY_TARGET" };
       if (effect.target === "ANY_ITEM" || effect.target === "OPPONENT_ITEM" || effect.target === "OWN_ITEM") {
         return { kind: "ITEM", scope: effect.target };
@@ -453,4 +469,12 @@ export function getRequiredTarget(cardSlug: string): TargetRequirement {
     }
   }
   return null;
+}
+
+export function getRequiredTarget(cardSlug: string): TargetRequirement {
+  return findRequiredTarget(cardSlug, "ON_PLAY");
+}
+
+export function getAttackTriggerTarget(cardSlug: string): TargetRequirement {
+  return findRequiredTarget(cardSlug, "ATTACK_STARTED");
 }
