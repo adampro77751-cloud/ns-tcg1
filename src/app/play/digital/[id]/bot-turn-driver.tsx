@@ -15,7 +15,7 @@ import { advanceBotTurnAction } from "@/lib/actions/digital-match-actions";
 export function BotTurnDriver({
   matchId,
   isBotTurn,
-  tickMs = 450,
+  tickMs = 120,
 }: {
   matchId: string;
   /** Whether the Bot has something to do right now — either it's the
