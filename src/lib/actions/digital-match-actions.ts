@@ -479,19 +479,38 @@ async function runBotIfNeeded(
 // (BotTurnDriver), paced with a short delay between calls, so the bot's
 // actions appear one at a time instead of its whole turn resolving the
 // instant it starts. Resolves a pending defense first (not gated by whose
-// turn it is), otherwise takes exactly one normal action. A no-op if
+// turn it is), otherwise takes up to a few normal actions before returning
+// (still one at a time in the log), so a bot turn with several plays isn't
+// dominated by one network round trip PER action — each round trip
+// (server action call + the client's page refresh) costs far more than
+// the deliberate pacing delay itself, which is what actually made the bot
+// feel like it "stops and wastes time" between visible moves. A no-op if
 // there's nothing for the bot to do right now.
+const MAX_BOT_ACTIONS_PER_TICK = 4;
+
 export async function advanceBotTurnAction(matchId: string) {
   const session = await requireAdminAction();
   const match = await loadMatchForAction(matchId, session.user.id);
   if (match.botIndex === null) return;
 
-  const cardsById = await loadCardsById(match.state);
-  const spritesById = await loadSpritesById(match.state);
-  const next = await runBotIfNeeded(match.state, match.botIndex, cardsById, spritesById);
+  const [cardsById, spritesById] = await Promise.all([
+    loadCardsById(match.state),
+    loadSpritesById(match.state),
+  ]);
 
-  if (next !== match.state) {
-    await persistState(matchId, next);
+  let state = match.state;
+  for (let i = 0; i < MAX_BOT_ACTIONS_PER_TICK; i++) {
+    const next = await runBotIfNeeded(state, match.botIndex, cardsById, spritesById);
+    if (next === state) break; // nothing more to do right now
+    state = next;
+    // Stop early once it's genuinely no longer the bot's turn to keep
+    // acting (turn ended, match over, or a combat is now pending on
+    // either side) — the same conditions runBotIfNeeded itself checks.
+    if (state.phase === "COMPLETE" || state.activePlayerIndex !== match.botIndex || state.pendingCombat) break;
+  }
+
+  if (state !== match.state) {
+    await persistState(matchId, state);
     revalidatePath(`/play/digital/${matchId}`);
   }
 }
