@@ -434,12 +434,18 @@ export function getCardAbilities(cardSlug: string): AbilitySpec[] {
 export type TargetRequirement =
   | { kind: "ITEM"; scope: "ANY_ITEM" | "OPPONENT_ITEM" | "OWN_ITEM" }
   | { kind: "ANY_TARGET" }
+  // School ("search your deck for an Item card and put it under your
+  // control"): the choice is over the CONTROLLER'S OWN deck contents, not
+  // a battlefield/player — a genuinely different picker (search + list,
+  // not click-a-card-on-the-battlefield), so it gets its own kind.
+  | { kind: "DECK_ITEM" }
   | null;
 
 export function getRequiredTarget(cardSlug: string): TargetRequirement {
   const onPlay = getCardAbilities(cardSlug).filter((a) => a.trigger === "ON_PLAY");
   for (const ability of onPlay) {
     for (const effect of ability.effects) {
+      if (effect.type === "SEARCH_DECK_TO_PLAY") return { kind: "DECK_ITEM" };
       if (effect.target === "ANY_TARGET") return { kind: "ANY_TARGET" };
       if (effect.target === "ANY_ITEM" || effect.target === "OPPONENT_ITEM" || effect.target === "OWN_ITEM") {
         return { kind: "ITEM", scope: effect.target };

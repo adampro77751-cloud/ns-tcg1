@@ -13,6 +13,7 @@ import {
   expandSnapshotToCardIds,
   getCardsByIdMap,
   getSpritesByIdMap,
+  getCardDisplayMap,
 } from "@/lib/digital-play";
 import {
   createGameState,
@@ -493,6 +494,50 @@ export async function advanceBotTurnAction(matchId: string) {
     await persistState(matchId, next);
     revalidatePath(`/play/digital/${matchId}`);
   }
+}
+
+export type SearchableDeckCard = {
+  instanceId: string;
+  cardId: string;
+  name: string;
+  type: string | null;
+  rarity: string | null;
+  attack: number | null;
+  defence: number | null;
+  speed: number | null;
+  image: string | null;
+};
+
+// School ("search your deck for an Item card...") reveals a real,
+// searchable list of the CALLER'S OWN deck contents — never the
+// opponent's — filtered to just the Item cards that are actually legal
+// choices for it. Deck contents otherwise stay completely hidden (see
+// getVisibleState, which never sends either player's deck array at all);
+// this is the one deliberate, card-justified exception, scoped to exactly
+// what that card lets you see.
+export async function getSearchableDeckItemsAction(matchId: string): Promise<SearchableDeckCard[]> {
+  const session = await requireAdminAction();
+  const match = await loadMatchForAction(matchId, session.user.id);
+
+  const deck = match.state.players[match.playerIndex].deck;
+  const cardsById = await loadCardsById(match.state);
+  const itemInstances = deck.filter((c) => cardsById.get(c.cardId)?.type === "Item");
+  const displayMap = await getCardDisplayMap(itemInstances.map((c) => c.cardId));
+
+  return itemInstances.map((instance) => {
+    const card = displayMap.get(instance.cardId);
+    return {
+      instanceId: instance.instanceId,
+      cardId: instance.cardId,
+      name: card?.name ?? "Unknown card",
+      type: card?.type ?? null,
+      rarity: card?.rarity ?? null,
+      attack: card?.attack ?? null,
+      defence: card?.defence ?? null,
+      speed: card?.speed ?? null,
+      image: card?.image ?? null,
+    };
+  });
 }
 
 async function runGameAction(

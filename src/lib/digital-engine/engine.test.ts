@@ -1489,6 +1489,81 @@ describe("School", () => {
     expect(state.players[1].battlefield).toHaveLength(0); // nothing found in the Bot's own Item-less deck
     expect(state.players[0].deck.length + state.players[0].hand.length).toBe(humanDeckAndHandBefore); // human's deck never touched
   });
+
+  // ---- Real search-your-deck picker (deck:<instanceId> chosenTarget) ----
+
+  it("getRequiredTarget flags School as a DECK_ITEM pick, distinct from a battlefield/player target", () => {
+    expect(getRequiredTarget("school")).toEqual({ kind: "DECK_ITEM" });
+  });
+
+  it("honors an explicit deck: chosenTarget over the default first-found heuristic", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [ITEM_WEAK.id, ITEM_WEAK], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "school-explicit-choice",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SCHOOL.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    // Two Items in deck — the default heuristic would grab whichever is
+    // found first; explicitly choosing the SECOND one proves the choice
+    // is actually honored, not just coincidentally matching.
+    state = putInDeck(state, 0, ITEM_WEAK.id, "weak-in-deck");
+    state = putInDeck(state, 0, ITEM_STRONG.id, "strong-in-deck");
+    const school = state.players[0].hand.find((c) => c.cardId === SCHOOL.id)!;
+    state = playSpell(state, 0, school.instanceId, cards, "deck:strong-in-deck");
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "strong-in-deck")).toBe(true);
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "weak-in-deck")).toBe(false);
+    expect(state.players[0].deck.some((c) => c.instanceId === "weak-in-deck")).toBe(true); // left behind, then shuffled
+  });
+
+  it("falls back to the default heuristic if the chosen deck instance is invalid or not actually an Item", () => {
+    const nonItemSpellInDeck: EngineCard = { id: "non-item-2", slug: "non-item-2", type: "Spell", attack: null, defence: null, speed: null };
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [ITEM_WEAK.id, ITEM_WEAK], [nonItemSpellInDeck.id, nonItemSpellInDeck]]);
+    let state = createGameState({
+      matchId: "school-invalid-choice",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SCHOOL.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putInDeck(state, 0, nonItemSpellInDeck.id, "non-item-in-deck");
+    state = putInDeck(state, 0, ITEM_WEAK.id, "weak-in-deck");
+    const school = state.players[0].hand.find((c) => c.cardId === SCHOOL.id)!;
+    // Pointing at a non-Item (or a nonexistent instanceId) is rejected —
+    // falls back to the real Item instead of doing nothing.
+    state = playSpell(state, 0, school.instanceId, cards, "deck:non-item-in-deck");
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "weak-in-deck")).toBe(true);
+  });
+
+  it("hasPlayableTarget / getLegalActions correctly gates School on deck contents (not battlefield/player candidates)", () => {
+    const cards = new Map<string, EngineCard>([[SCHOOL.id, SCHOOL], [ITEM_STRONG.id, ITEM_STRONG]]);
+    let state = createGameState({
+      matchId: "school-legal-gate",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SCHOOL.id] }, // empty deck after opening hand
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_STRONG.id, ITEM_STRONG.id] }, // opponent has Items on THEIR side — irrelevant to School
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_SPELL")).toBe(false);
+    state = putInDeck(state, 0, ITEM_STRONG.id, "strong-in-deck");
+    expect(getLegalActions(state, 0, cards).some((a) => a.type === "PLAY_SPELL")).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

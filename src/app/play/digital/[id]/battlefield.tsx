@@ -11,6 +11,8 @@ import {
   concedeDigitalMatchAction,
   activateTimeBombAction,
   activateStarDropAction,
+  getSearchableDeckItemsAction,
+  type SearchableDeckCard,
 } from "@/lib/actions/digital-match-actions";
 import type { VisibleGameState } from "@/lib/digital-engine/engine";
 import type { LegalAction } from "@/lib/digital-engine/engine";
@@ -170,6 +172,118 @@ function ZonePile({
   );
 }
 
+// School ("search your deck for an Item card and put it under your
+// control"): a real search-and-select picker over the CALLER'S OWN deck
+// contents, fetched on demand via getSearchableDeckItemsAction — deck
+// contents otherwise never reach the client at all (see getVisibleState).
+function DeckSearchModal({
+  matchId,
+  instanceId,
+  action,
+  onClose,
+}: {
+  matchId: string;
+  instanceId: string;
+  action: PlayFormAction;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [items, setItems] = useState<SearchableDeckCard[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    getSearchableDeckItemsAction(matchId)
+      .then((result) => {
+        if (!cancelled) setItems(result);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load your deck.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [matchId]);
+
+  const filtered = (items ?? []).filter((c) => c.name.toLowerCase().includes(query.toLowerCase()));
+
+  async function pick(deckInstanceId: string) {
+    const formData = new FormData();
+    formData.set("matchId", matchId);
+    formData.set("instanceId", instanceId);
+    formData.set("targetId", `deck:${deckInstanceId}`);
+    onClose();
+    await action(formData);
+    router.refresh();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl border-4 border-white bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">Search your deck for an Item</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full px-2 py-1 text-sm font-bold text-slate-500 hover:bg-slate-100"
+          >
+            ✕
+          </button>
+        </div>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by name..."
+          autoFocus
+          className="mt-3 w-full rounded border border-sky-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+        />
+        {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+        {!items && !error && <p className="mt-4 text-sm text-slate-400">Loading your deck…</p>}
+        {items && (
+          <div className="mt-4 flex flex-wrap gap-3">
+            {filtered.map((c) => (
+              <button
+                key={c.instanceId}
+                type="button"
+                onClick={() => pick(c.instanceId)}
+                className="flex w-28 flex-col items-center gap-1 text-center"
+              >
+                <div className="aspect-[5/7] w-28 overflow-hidden rounded-lg border-2 border-violet-300 bg-white shadow transition hover:scale-105">
+                  {c.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.image} alt={c.name} className="h-full w-full object-contain" />
+                  ) : (
+                    <span className="flex h-full items-center justify-center p-1 text-xs font-semibold text-slate-600">
+                      {c.name}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs font-semibold leading-tight">{c.name}</p>
+                <p className="text-[11px] text-slate-500">
+                  {c.attack !== null && `ATK ${c.attack} `}
+                  {c.defence !== null && `DEF ${c.defence} `}
+                  {c.speed !== null && `SPD ${c.speed}`}
+                </p>
+              </button>
+            ))}
+            {items.length === 0 && (
+              <p className="text-sm text-slate-400">Your deck has no Item cards left to find.</p>
+            )}
+            {items.length > 0 && filtered.length === 0 && (
+              <p className="text-sm text-slate-400">No match for "{query}".</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function Battlefield({
   matchId,
   visible,
@@ -193,6 +307,7 @@ export function Battlefield({
   const [enlarged, setEnlarged] = useState<CardDisplay | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [pendingPlay, setPendingPlay] = useState<PendingPlay | null>(null);
+  const [deckSearch, setDeckSearch] = useState<{ instanceId: string; action: PlayFormAction } | null>(null);
   const [openDiscard, setOpenDiscard] = useState<0 | 1 | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -303,6 +418,18 @@ export function Battlefield({
             Play
           </button>
         </form>
+      );
+    }
+
+    if (requirement.kind === "DECK_ITEM") {
+      return (
+        <button
+          type="button"
+          onClick={() => setDeckSearch({ instanceId, action })}
+          className="rounded bg-violet-600 px-3 py-1 text-xs font-bold text-white hover:bg-violet-700"
+        >
+          Play (search deck)
+        </button>
       );
     }
 
@@ -664,6 +791,15 @@ export function Battlefield({
             </p>
           </div>
         </div>
+      )}
+
+      {deckSearch && (
+        <DeckSearchModal
+          matchId={matchId}
+          instanceId={deckSearch.instanceId}
+          action={deckSearch.action}
+          onClose={() => setDeckSearch(null)}
+        />
       )}
 
       {openDiscard !== null && (

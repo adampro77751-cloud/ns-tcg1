@@ -744,7 +744,16 @@ function applyEffect(
     // onto the battlefield under your control").
     case "SEARCH_DECK_TO_PLAY": {
       const deck = state.players[controllerIndex].deck;
-      const found = deck.find((c) => cardsById.get(c.cardId)?.type === "Item");
+      // A human playing School gets a real search-your-deck picker (see
+      // getRequiredTarget's DECK_ITEM kind) — "deck:<instanceId>" is that
+      // choice. Validated as an actual Item still in this exact deck
+      // before trusting it; falls back to the old auto-heuristic (first
+      // Item found) for the Bot, or if the choice is somehow stale.
+      const chosenInstanceId = ctx.chosenTarget?.startsWith("deck:") ? ctx.chosenTarget.slice(5) : undefined;
+      const chosen = chosenInstanceId
+        ? deck.find((c) => c.instanceId === chosenInstanceId && cardsById.get(c.cardId)?.type === "Item")
+        : undefined;
+      const found = chosen ?? deck.find((c) => cardsById.get(c.cardId)?.type === "Item");
       if (!found) return { state, resolvedTarget: null };
       const rest = shuffle(removeFromZone(deck, found.instanceId), ctx.random);
       state = updatePlayer(state, controllerIndex, (p) => ({ ...p, deck: rest }));
@@ -1625,7 +1634,10 @@ export function getTargetCandidateIds(
   playerIndex: 0 | 1,
   requirement: TargetRequirement,
 ): { playerTargetIds: string[]; itemInstanceIds: string[] } {
-  if (!requirement) return { playerTargetIds: [], itemInstanceIds: [] };
+  // DECK_ITEM (School) isn't a battlefield/player target at all — it's
+  // resolved via a dedicated deck-search picker (see the "deck:" chosenTarget
+  // prefix in engine.ts's SEARCH_DECK_TO_PLAY case), not this function.
+  if (!requirement || requirement.kind === "DECK_ITEM") return { playerTargetIds: [], itemInstanceIds: [] };
   const opponentIdx = opponentIndex(playerIndex);
   const ownItemIds = state.players[playerIndex].battlefield.map((c) => c.instanceId);
   const oppItemIds = state.players[opponentIdx].battlefield.map((c) => c.instanceId);
@@ -1656,6 +1668,9 @@ function hasPlayableTarget(
   if (!slug) return true;
   const requirement = getRequiredTarget(slug);
   if (!requirement) return true;
+  if (requirement.kind === "DECK_ITEM") {
+    return state.players[playerIndex].deck.some((c) => cardsById.get(c.cardId)?.type === "Item");
+  }
   const { playerTargetIds, itemInstanceIds } = getTargetCandidateIds(state, playerIndex, requirement);
   return playerTargetIds.length + itemInstanceIds.length > 0;
 }

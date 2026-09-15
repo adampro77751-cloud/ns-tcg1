@@ -51,6 +51,11 @@ function chooseBotTarget(
   if (!card) return undefined;
   const requirement = getRequiredTarget(card.slug);
   if (!requirement) return undefined;
+  // School's deck search has no meaningful "random" pick to make here —
+  // the engine's own default (first Item found in deck) is exactly as
+  // arbitrary, and the Bot's own deck contents must never be exposed to
+  // the human anyway.
+  if (requirement.kind === "DECK_ITEM") return undefined;
 
   const { playerTargetIds, itemInstanceIds } = getTargetCandidateIds(state, playerIndex, requirement);
   if (requirement.kind === "ANY_TARGET") {
