@@ -318,10 +318,15 @@ export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
   // "Players can't draw cards." — a global static effect, special-cased
   // directly in drawCard() rather than modelled as a trigger; see there.
 
-  // Budge's first two abilities are simple draw triggers; its third
-  // ("whenever Budge attacks, search your library...") is not
-  // implemented, and Budge can't currently be played at all — see report
-  // (Commander-type cards have no defined way to enter play).
+  // Budge's first two abilities are simple draw triggers, and DO fire once
+  // Budge is on the battlefield — like every other Commander/Champion card
+  // it's playable via the normal Item action (see types.ts's top-of-file
+  // comment for that provisional decision). Its third ability ("whenever
+  // Budge attacks, search your library for a card, then put it into your
+  // hand unless you have 3+ Spells in discard, in which case put it into
+  // play instead") is NOT implemented — no ATTACK_STARTED entry exists for
+  // it below, and there's no conditional-outcome effect type in this
+  // engine yet to express the discard-count branch.
   budge: [
     { trigger: "ITEM_PLAYED", effects: [{ type: "DRAW", amount: 1, target: "SELF" }] },
     { trigger: "SPELL_PLAYED", effects: [{ type: "DRAW", amount: 2, target: "SELF" }] },

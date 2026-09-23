@@ -781,6 +781,7 @@ describe("card abilities — second pass (discard interaction, reveal, counters)
 // ---------------------------------------------------------------------------
 
 const CATHEDRAL_PERGRINES: EngineCard = { id: "cathedral-pergrines-1", slug: "cathedral-pergrines", type: "Commander", attack: 40, defence: 40, speed: 40 };
+const BUDGE: EngineCard = { id: "budge-1", slug: "budge", type: "Commander", attack: 20, defence: 20, speed: 20 };
 const STAR_DROP: EngineCard = { id: "star-drop-1", slug: "star-drop", type: "Commander", attack: 30, defence: 30, speed: 30 };
 const THE_CURRICULUM: EngineCard = { id: "the-curriculum-1", slug: "the-curriculum", type: "Champion", attack: 60, defence: 60, speed: 60 };
 
@@ -899,6 +900,51 @@ describe("Commander/Champion cards (provisional entry)", () => {
     const battlefieldBefore = state.players[0].battlefield.length;
     state = declareAttack(state, 0, "cp-skip-1", cards);
     expect(state.players[0].battlefield.length).toBe(battlefieldBefore); // nothing found, attack still resolved
+  });
+
+  it("Budge is playable as a Commander and its draw triggers fire from the battlefield (regression: a stale comment once claimed Budge couldn't be played at all)", () => {
+    const cards = new Map<string, EngineCard>([[BUDGE.id, BUDGE], [ITEM_WEAK.id, ITEM_WEAK], [SPELL_A.id, SPELL_A]]);
+    let state = createGameState({
+      matchId: "budge-entry-and-triggers",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        {
+          userId: "u1",
+          spriteInstanceId: null,
+          cardIds: [ITEM_WEAK.id, ITEM_WEAK.id, ITEM_WEAK.id, ITEM_WEAK.id, ITEM_WEAK.id, SPELL_A.id],
+        },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, BUDGE.id, "budge-inst-1");
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "budge-inst-1")).toBe(true);
+
+    // Playing a second Item: Budge should draw 1 extra beyond the normal
+    // "play an Item" action (which doesn't draw on its own).
+    state = forceToHand(state, 0, ITEM_WEAK.id);
+    const itemInHand = state.players[0].hand.find((c) => c.cardId === ITEM_WEAK.id)!;
+    const deckPlusHandBeforeItem = state.players[0].deck.length + state.players[0].hand.length;
+    state = playItem(state, 0, itemInHand.instanceId, cards);
+    // The played Item leaves hand+deck total by -1 (moves to battlefield);
+    // Budge's extra draw doesn't change deck+hand total either (a draw
+    // just moves a card from deck to hand) — so the real proof is the log.
+    expect(state.log.some((l) => l.includes("budge") && l.includes("an Item was played"))).toBe(true);
+    expect(state.players[0].deck.length + state.players[0].hand.length).toBe(deckPlusHandBeforeItem - 1);
+
+    // Playing a Spell: Budge should draw 2.
+    state = forceToHand(state, 0, SPELL_A.id);
+    const spellInHand = state.players[0].hand.find((c) => c.cardId === SPELL_A.id)!;
+    const handBeforeSpell = state.players[0].hand.length;
+    const deckBeforeSpell = state.players[0].deck.length;
+    state = playSpell(state, 0, spellInHand.instanceId, cards);
+    expect(state.log.some((l) => l.includes("budge") && l.includes("a Spell was played"))).toBe(true);
+    const actualDraws = deckBeforeSpell - state.players[0].deck.length;
+    expect(actualDraws).toBe(Math.min(2, deckBeforeSpell));
+    expect(state.players[0].hand.length).toBe(handBeforeSpell - 1 + actualDraws);
   });
 
   it("The Curriculum locks Items for the rest of the match, for both players", () => {
