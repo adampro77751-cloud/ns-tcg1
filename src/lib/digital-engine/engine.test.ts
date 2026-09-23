@@ -947,6 +947,97 @@ describe("Commander/Champion cards (provisional entry)", () => {
     expect(state.players[0].hand.length).toBe(handBeforeSpell - 1 + actualDraws);
   });
 
+  it("getAttackTriggerTarget flags Budge as a DECK_ITEM (search) pick on attack, same picker as Cathedral Pergrines", () => {
+    expect(getAttackTriggerTarget("budge")).toEqual({ kind: "DECK_ITEM" });
+    expect(getRequiredTarget("budge")).toBeNull(); // no ON_PLAY search — only on attack
+  });
+
+  it("Budge's tutor sends the found card to HAND when the discard has fewer than 3 Spells", () => {
+    const cards = new Map<string, EngineCard>([[BUDGE.id, BUDGE], [ITEM_WEAK.id, ITEM_WEAK], [SPELL_A.id, SPELL_A]]);
+    let state = createGameState({
+      matchId: "budge-tutor-to-hand",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, BUDGE.id, "budge-tutor-1");
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-disc-1"); // only 1 Spell in discard — below the threshold of 3
+    // Deck has one Spell and one Item — proves the search isn't
+    // restricted to Items when the result is headed to hand.
+    state = putInDeck(state, 0, SPELL_A.id, "found-spell-1");
+    const handBefore = state.players[0].hand.length;
+    const battlefieldBefore = state.players[0].battlefield.length;
+    state = declareAttack(state, 0, "budge-tutor-1", cards, new Map(), "deck:found-spell-1");
+
+    expect(state.players[0].hand.some((c) => c.instanceId === "found-spell-1")).toBe(true);
+    expect(state.players[0].hand).toHaveLength(handBefore + 1);
+    expect(state.players[0].battlefield).toHaveLength(battlefieldBefore); // NOT onto the battlefield
+  });
+
+  it("Budge's tutor sends the found card to the BATTLEFIELD when the discard has 3+ Spells (Item-restricted, same as School/Cathedral Pergrines)", () => {
+    const cards = new Map<string, EngineCard>([[BUDGE.id, BUDGE], [ITEM_WEAK.id, ITEM_WEAK], [SPELL_A.id, SPELL_A]]);
+    let state = createGameState({
+      matchId: "budge-tutor-to-battlefield",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, BUDGE.id, "budge-tutor-2");
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-disc-2a");
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-disc-2b");
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-disc-2c"); // 3 Spells in discard — meets the threshold
+    state = putInDeck(state, 0, ITEM_WEAK.id, "found-item-2");
+    const handBefore = state.players[0].hand.length;
+    const battlefieldBefore = state.players[0].battlefield.length;
+    state = declareAttack(state, 0, "budge-tutor-2", cards, new Map(), "deck:found-item-2");
+
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "found-item-2")).toBe(true);
+    expect(state.players[0].battlefield).toHaveLength(battlefieldBefore + 1);
+    expect(state.players[0].hand).toHaveLength(handBefore); // NOT into hand
+  });
+
+  it("Budge's tutor at the battlefield threshold restricts the search to Items only, even with an explicit non-Item choice", () => {
+    const cards = new Map<string, EngineCard>([[BUDGE.id, BUDGE], [ITEM_WEAK.id, ITEM_WEAK], [SPELL_A.id, SPELL_A]]);
+    let state = createGameState({
+      matchId: "budge-tutor-restricted-choice",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, BUDGE.id, "budge-tutor-3");
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-disc-3a");
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-disc-3b");
+    state = putInDiscard(state, 0, SPELL_A.id, "spell-disc-3c"); // meets the threshold
+    state = putInDeck(state, 0, SPELL_A.id, "spell-in-deck-3"); // NOT a legal battlefield choice
+    state = putInDeck(state, 0, ITEM_WEAK.id, "item-in-deck-3");
+    const battlefieldBefore = state.players[0].battlefield.length;
+    // Explicitly pointing at the (illegal, non-Item) Spell falls back to
+    // the Item instead of doing nothing.
+    state = declareAttack(state, 0, "budge-tutor-3", cards, new Map(), "deck:spell-in-deck-3");
+
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "item-in-deck-3")).toBe(true);
+    expect(state.players[0].battlefield.some((c) => c.instanceId === "spell-in-deck-3")).toBe(false);
+    expect(state.players[0].battlefield).toHaveLength(battlefieldBefore + 1);
+  });
+
   it("The Curriculum locks Items for the rest of the match, for both players", () => {
     const cards = new Map<string, EngineCard>([[THE_CURRICULUM.id, THE_CURRICULUM], [ITEM_WEAK.id, ITEM_WEAK]]);
     let state = createGameState({

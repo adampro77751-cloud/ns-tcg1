@@ -25,8 +25,10 @@ import {
   concede as engConcede,
   activateTimeBomb as engActivateTimeBomb,
   activateStarDrop as engActivateStarDrop,
+  resolveSearchDeckDestination,
 } from "@/lib/digital-engine/engine";
 import { runBotStep, runBotDefense } from "@/lib/digital-engine/bot";
+import { getCardAbilities } from "@/lib/digital-engine/abilities";
 import type { DigitalGameState, EngineCard } from "@/lib/digital-engine/types";
 import { IllegalActionError } from "@/lib/digital-engine/types";
 import type { SpriteEngineData } from "@/lib/digital-engine/sprite-abilities";
@@ -527,23 +529,46 @@ export type SearchableDeckCard = {
   image: string | null;
 };
 
-// School ("search your deck for an Item card...") reveals a real,
+// School/Cathedral Pergrines/Budge (all SEARCH_DECK) reveal a real,
 // searchable list of the CALLER'S OWN deck contents — never the
-// opponent's — filtered to just the Item cards that are actually legal
-// choices for it. Deck contents otherwise stay completely hidden (see
+// opponent's. Deck contents otherwise stay completely hidden (see
 // getVisibleState, which never sends either player's deck array at all);
 // this is the one deliberate, card-justified exception, scoped to exactly
-// what that card lets you see.
-export async function getSearchableDeckItemsAction(matchId: string): Promise<SearchableDeckCard[]> {
+// what that card lets you see. `instanceId` identifies the specific card
+// doing the searching (its hand instance for School's ON_PLAY search, or
+// its battlefield instance for Cathedral Pergrines'/Budge's ATTACK_STARTED
+// one) so the legal candidate list can be computed exactly the way
+// applyEffect's SEARCH_DECK case will (Item-only for a battlefield
+// placement — the same resolveSearchDeckDestination the engine itself
+// uses — or every card type when the result is headed to hand instead,
+// e.g. Budge without 3+ Spells in discard).
+export async function getSearchableDeckItemsAction(matchId: string, instanceId: string): Promise<SearchableDeckCard[]> {
   const session = await requireAdminAction();
   const match = await loadMatchForAction(matchId, session.user.id);
 
-  const deck = match.state.players[match.playerIndex].deck;
+  const player = match.state.players[match.playerIndex];
   const cardsById = await loadCardsById(match.state);
-  const itemInstances = deck.filter((c) => cardsById.get(c.cardId)?.type === "Item");
-  const displayMap = await getCardDisplayMap(itemInstances.map((c) => c.cardId));
 
-  return itemInstances.map((instance) => {
+  const inHand = player.hand.find((c) => c.instanceId === instanceId);
+  const searching = inHand ?? player.battlefield.find((c) => c.instanceId === instanceId);
+  const trigger = inHand ? "ON_PLAY" : "ATTACK_STARTED";
+  const slug = searching ? cardsById.get(searching.cardId)?.slug : undefined;
+
+  let itemsOnly = true; // safe default — matches every existing search card (School, Cathedral Pergrines)
+  if (slug) {
+    for (const ability of getCardAbilities(slug).filter((a) => a.trigger === trigger)) {
+      for (const effect of ability.effects) {
+        if (effect.type !== "SEARCH_DECK") continue;
+        itemsOnly = resolveSearchDeckDestination(effect, match.state, match.playerIndex, cardsById) === "BATTLEFIELD";
+      }
+    }
+  }
+
+  const deck = player.deck;
+  const candidates = deck.filter((c) => !itemsOnly || cardsById.get(c.cardId)?.type === "Item");
+  const displayMap = await getCardDisplayMap(candidates.map((c) => c.cardId));
+
+  return candidates.map((instance) => {
     const card = displayMap.get(instance.cardId);
     return {
       instanceId: instance.instanceId,

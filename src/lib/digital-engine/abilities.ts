@@ -46,7 +46,7 @@ export type EffectType =
   | "MUTUAL_DISCARD_ITEM"
   | "REVEAL_HAND"
   | "ADD_CHARGE"
-  | "SEARCH_DECK_TO_PLAY"
+  | "SEARCH_DECK"
   | "LOCK_CARD_TYPE";
 
 export type GameEvent =
@@ -86,6 +86,16 @@ export type EffectSpec = {
    *  (The Curriculum). Not a general choice system — just a documented,
    *  hand-picked default for the one card that currently needs it. */
   choice?: "ITEM" | "SPELL";
+  /** SEARCH_DECK only — where the found card ends up. "BATTLEFIELD"
+   *  (School, Cathedral Pergrines) restricts the search to Items, since
+   *  only Items can be battlefield permanents in this engine.
+   *  "CONDITIONAL_ON_DISCARD_SPELLS" (Budge) checks the controller's OWN
+   *  discard pile at resolution time: >= `conditionThreshold` Spells
+   *  there sends it to the battlefield (Item-restricted, same as above);
+   *  otherwise it goes to hand instead, where any card type is a legal
+   *  find. Defaults to "BATTLEFIELD" if omitted. */
+  destination?: "BATTLEFIELD" | "HAND" | "CONDITIONAL_ON_DISCARD_SPELLS";
+  conditionThreshold?: number;
 };
 
 export type AbilitySpec = {
@@ -238,15 +248,15 @@ export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
   // per explicit clarification, this puts the found Item DIRECTLY onto
   // the battlefield (not into hand first), then shuffles the deck — the
   // same shape as Cathedral Pergrines' search, hence the shared
-  // SEARCH_DECK_TO_PLAY effect. "Choose ONE Item" is the controller's own
-  // choice in the real text; auto-resolved to the first Item found in the
-  // deck (no deck-contents picker UI exists — deck contents stay hidden
-  // information, same simplification policy as every other undirected
-  // choice in this engine). Putting the Item onto the battlefield this
-  // way still fires its own ON_PLAY and the normal ITEM_ENTERED trigger
-  // for every other permanent watching for it (enterBattlefield is the
-  // single chokepoint for that, used identically here).
-  school: [{ trigger: "ON_PLAY", effects: [{ type: "SEARCH_DECK_TO_PLAY" }] }],
+  // SEARCH_DECK effect (destination: "BATTLEFIELD"). "Choose ONE Item" is
+  // the controller's own real target choice, given a real search-and-
+  // select picker (see getRequiredTarget's DECK_ITEM kind); falls back to
+  // the first Item found in the deck for the Bot or a stale choice.
+  // Putting the Item onto the battlefield this way still fires its own
+  // ON_PLAY and the normal ITEM_ENTERED trigger for every other permanent
+  // watching for it (enterBattlefield is the single chokepoint for that,
+  // used identically here).
+  school: [{ trigger: "ON_PLAY", effects: [{ type: "SEARCH_DECK", destination: "BATTLEFIELD" }] }],
 
   // "All Items you control become copies of target Item permanently." —
   // target auto-picked as the strongest Item on either battlefield.
@@ -318,18 +328,27 @@ export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
   // "Players can't draw cards." — a global static effect, special-cased
   // directly in drawCard() rather than modelled as a trigger; see there.
 
-  // Budge's first two abilities are simple draw triggers, and DO fire once
+  // Budge's first two abilities are simple draw triggers, and fire once
   // Budge is on the battlefield — like every other Commander/Champion card
   // it's playable via the normal Item action (see types.ts's top-of-file
-  // comment for that provisional decision). Its third ability ("whenever
-  // Budge attacks, search your library for a card, then put it into your
-  // hand unless you have 3+ Spells in discard, in which case put it into
-  // play instead") is NOT implemented — no ATTACK_STARTED entry exists for
-  // it below, and there's no conditional-outcome effect type in this
-  // engine yet to express the discard-count branch.
+  // comment for that provisional decision).
+  //
+  // Third ability: "Whenever Budge attacks, search your library for a
+  // card, then put it into your hand unless you have 3 or more Spells in
+  // your discard pile. If you do, put that card into play instead." — the
+  // same SEARCH_DECK effect School/Cathedral Pergrines use, but with
+  // destination "CONDITIONAL_ON_DISCARD_SPELLS": if the controller's own
+  // discard has >= 3 Spells the found card goes to the battlefield
+  // (Item-restricted, same rule as every other search-to-battlefield);
+  // otherwise it goes to hand, where any card type — Item or Spell — is a
+  // legal find, matching the real text's unrestricted "a card".
   budge: [
     { trigger: "ITEM_PLAYED", effects: [{ type: "DRAW", amount: 1, target: "SELF" }] },
     { trigger: "SPELL_PLAYED", effects: [{ type: "DRAW", amount: 2, target: "SELF" }] },
+    {
+      trigger: "ATTACK_STARTED",
+      effects: [{ type: "SEARCH_DECK", destination: "CONDITIONAL_ON_DISCARD_SPELLS", conditionThreshold: 3 }],
+    },
   ],
 
   // ---- Discard-pile interaction ----
@@ -404,7 +423,7 @@ export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
       trigger: "ATTACK_STARTED",
       effects: [
         { type: "DISCARD", amount: 1, target: "SELF" },
-        { type: "SEARCH_DECK_TO_PLAY" },
+        { type: "SEARCH_DECK", destination: "BATTLEFIELD" },
       ],
     },
   ],
@@ -440,10 +459,15 @@ export function getCardAbilities(cardSlug: string): AbilitySpec[] {
 export type TargetRequirement =
   | { kind: "ITEM"; scope: "ANY_ITEM" | "OPPONENT_ITEM" | "OWN_ITEM" }
   | { kind: "ANY_TARGET" }
-  // School / Cathedral Pergrines ("search your deck for an Item..."): the
-  // choice is over the CONTROLLER'S OWN deck contents, not a battlefield/
-  // player — a genuinely different picker (search + list, not
-  // click-a-card-on-the-battlefield), so it gets its own kind.
+  // School / Cathedral Pergrines / Budge (all SEARCH_DECK): the choice is
+  // over the CONTROLLER'S OWN deck contents, not a battlefield/player — a
+  // genuinely different picker (search + list, not click-a-card-on-the-
+  // battlefield), so it gets its own kind. Named DECK_ITEM for historical
+  // reasons (School/Cathedral Pergrines only ever find Items), but Budge's
+  // search can surface a Spell too when its result is headed to hand
+  // rather than the battlefield — see SEARCH_DECK's `destination` field
+  // and getSearchableDeckItemsAction, which computes the real candidate
+  // list (Item-only or any card) server-side per card/state.
   | { kind: "DECK_ITEM" }
   // Old Book / Blast From The Past ("return card(s) from your discard to
   // hand"), Chemistry Lesson ("put an Item from your discard into play"),
@@ -459,7 +483,7 @@ function findRequiredTarget(cardSlug: string, trigger: AbilitySpec["trigger"]): 
   const abilities = getCardAbilities(cardSlug).filter((a) => a.trigger === trigger);
   for (const ability of abilities) {
     for (const effect of ability.effects) {
-      if (effect.type === "SEARCH_DECK_TO_PLAY") return { kind: "DECK_ITEM" };
+      if (effect.type === "SEARCH_DECK") return { kind: "DECK_ITEM" };
       if (effect.type === "CAST_FROM_DISCARD") return { kind: "DISCARD_CARD", filter: "SPELL", amount: 1 };
       if (effect.type === "RETURN_TO_HAND" && effect.target === "SELF_DISCARD") {
         return { kind: "DISCARD_CARD", filter: "ANY", amount: effect.amount ?? 1 };

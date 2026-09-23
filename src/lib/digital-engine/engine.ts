@@ -567,6 +567,29 @@ function parseChosenInstanceIds(chosenTarget: string | undefined, prefix: string
   return chosenTarget.slice(prefix.length).split(",").filter(Boolean);
 }
 
+// Where a SEARCH_DECK effect's found card ends up — shared by applyEffect
+// (to decide the actual placement) and getSearchableDeckItemsAction (to
+// decide, BEFORE the player picks, which cards in the deck are even legal
+// choices — Item-only for a battlefield placement, since only Items can be
+// battlefield permanents here). Exported so the server action can mirror
+// this exactly rather than re-deriving it.
+export function resolveSearchDeckDestination(
+  effect: Pick<EffectSpec, "destination" | "conditionThreshold">,
+  state: DigitalGameState,
+  controllerIndex: 0 | 1,
+  cardsById: Map<string, EngineCard>,
+): "BATTLEFIELD" | "HAND" {
+  if (effect.destination === "HAND") return "HAND";
+  if (effect.destination === "CONDITIONAL_ON_DISCARD_SPELLS") {
+    const threshold = effect.conditionThreshold ?? 0;
+    const spellsInDiscard = state.players[controllerIndex].discard.filter(
+      (c) => cardsById.get(c.cardId)?.type === "Spell",
+    ).length;
+    return spellsInDiscard >= threshold ? "BATTLEFIELD" : "HAND";
+  }
+  return "BATTLEFIELD";
+}
+
 function findInstanceAnywhere(
   state: DigitalGameState,
   instanceId: string,
@@ -767,26 +790,35 @@ function applyEffect(
       return { state, resolvedTarget: item.instanceId };
     }
 
-    // Used by both School ("search your deck for an Item, put it under
-    // your control" — clarified to mean directly onto the battlefield)
-    // and Cathedral Pergrines ("search your deck for any Item and put it
-    // onto the battlefield under your control").
-    case "SEARCH_DECK_TO_PLAY": {
+    // Used by School ("search your deck for an Item, put it under your
+    // control" — clarified to mean directly onto the battlefield),
+    // Cathedral Pergrines ("search your deck for any Item and put it onto
+    // the battlefield under your control"), and Budge ("search your
+    // library for a card, then put it into your hand unless you have 3+
+    // Spells in your discard, in which case put it into play instead").
+    case "SEARCH_DECK": {
       const deck = state.players[controllerIndex].deck;
-      // A human playing School gets a real search-your-deck picker (see
-      // getRequiredTarget's DECK_ITEM kind) — "deck:<instanceId>" is that
-      // choice. Validated as an actual Item still in this exact deck
-      // before trusting it; falls back to the old auto-heuristic (first
-      // Item found) for the Bot, or if the choice is somehow stale.
+      const destination = resolveSearchDeckDestination(effect, state, controllerIndex, cardsById);
+      const itemsOnly = destination === "BATTLEFIELD"; // only Items can be battlefield permanents
+      const matchesFilter = (c: CardInstance) => !itemsOnly || cardsById.get(c.cardId)?.type === "Item";
+      // A human gets a real search-your-deck picker (see getRequiredTarget's
+      // DECK_ITEM kind) — "deck:<instanceId>" is that choice, validated
+      // against the SAME filter the picker itself used server-side before
+      // trusting it; falls back to the first legal card found in the deck
+      // for the Bot, or if the choice is somehow stale.
       const chosenInstanceId = ctx.chosenTarget?.startsWith("deck:") ? ctx.chosenTarget.slice(5) : undefined;
       const chosen = chosenInstanceId
-        ? deck.find((c) => c.instanceId === chosenInstanceId && cardsById.get(c.cardId)?.type === "Item")
+        ? deck.find((c) => c.instanceId === chosenInstanceId && matchesFilter(c))
         : undefined;
-      const found = chosen ?? deck.find((c) => cardsById.get(c.cardId)?.type === "Item");
+      const found = chosen ?? deck.find(matchesFilter);
       if (!found) return { state, resolvedTarget: null };
       const rest = shuffle(removeFromZone(deck, found.instanceId), ctx.random);
       state = updatePlayer(state, controllerIndex, (p) => ({ ...p, deck: rest }));
-      state = enterBattlefield(state, controllerIndex, found, cardsById, depth, undefined, ctx.spritesById);
+      if (destination === "BATTLEFIELD") {
+        state = enterBattlefield(state, controllerIndex, found, cardsById, depth, undefined, ctx.spritesById);
+      } else {
+        state = updatePlayer(state, controllerIndex, (p) => ({ ...p, hand: [...p.hand, found] }));
+      }
       return { state, resolvedTarget: found.instanceId };
     }
 
@@ -1379,11 +1411,12 @@ export function declareAttack(
     log: [...state.log, `${describePlayer(playerIndex)} attacked with ${attackerCard.id}.`],
   };
 
-  // "When Bio Worm/Cathedral Pergrines attacks, ..." — self-only, fires at
-  // declaration regardless of how the defender choice later resolves.
-  // Cathedral Pergrines' Dive Bomb (SEARCH_DECK_TO_PLAY) gets the same
-  // real search-your-deck picker School does — `chosenTarget` ("deck:<id>")
-  // flows through here exactly like it does for playItem/playSpell.
+  // "When Bio Worm/Cathedral Pergrines/Budge attacks, ..." — self-only,
+  // fires at declaration regardless of how the defender choice later
+  // resolves. Cathedral Pergrines' Dive Bomb and Budge's tutor (both
+  // SEARCH_DECK) get the same real search-your-deck picker School does —
+  // `chosenTarget` ("deck:<id>") flows through here exactly like it does
+  // for playItem/playSpell.
   state = resolveAbilities(
     state,
     playerIndex,

@@ -172,10 +172,14 @@ function ZonePile({
   );
 }
 
-// School ("search your deck for an Item card and put it under your
-// control"): a real search-and-select picker over the CALLER'S OWN deck
-// contents, fetched on demand via getSearchableDeckItemsAction — deck
-// contents otherwise never reach the client at all (see getVisibleState).
+// Shared by every SEARCH_DECK card (School, Cathedral Pergrines, Budge): a
+// real search-and-select picker over the CALLER'S OWN deck contents,
+// fetched on demand via getSearchableDeckItemsAction — deck contents
+// otherwise never reach the client at all (see getVisibleState). The
+// server computes the actual candidate list per card/state (e.g. Budge
+// without 3+ Spells in discard can find a Spell too, since its result is
+// headed to hand rather than the battlefield), so this component doesn't
+// need to know which card opened it or where the result will land.
 function DeckSearchModal({
   matchId,
   instanceId,
@@ -203,7 +207,7 @@ function DeckSearchModal({
 
   useEffect(() => {
     let cancelled = false;
-    getSearchableDeckItemsAction(matchId)
+    getSearchableDeckItemsAction(matchId, instanceId)
       .then((result) => {
         if (!cancelled) setItems(result);
       })
@@ -213,7 +217,7 @@ function DeckSearchModal({
     return () => {
       cancelled = true;
     };
-  }, [matchId]);
+  }, [matchId, instanceId]);
 
   const filtered = (items ?? []).filter((c) => c.name.toLowerCase().includes(query.toLowerCase()));
 
@@ -234,7 +238,7 @@ function DeckSearchModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold">Search your deck for an Item</h2>
+          <h2 className="text-lg font-bold">Search your deck</h2>
           <button
             type="button"
             onClick={onClose}
@@ -290,7 +294,7 @@ function DeckSearchModal({
               </button>
             ))}
             {items.length === 0 && (
-              <p className="text-sm text-slate-400">Your deck has no Item cards left to find.</p>
+              <p className="text-sm text-slate-400">Nothing eligible left in your deck to find.</p>
             )}
             {items.length > 0 && filtered.length === 0 && (
               <p className="text-sm text-slate-400">No match for "{query}".</p>
