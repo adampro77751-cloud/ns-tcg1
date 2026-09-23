@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getDeckLegality } from "@/lib/decks";
+import { getCollectionMap } from "@/lib/collection";
 import {
   deleteDeckAction,
   increaseCardAction,
@@ -75,6 +76,7 @@ export default async function DeckDetailPage({
   const deckCardQuantities = new Map(
     deck.cards.map((dc) => [dc.card.id, dc.quantity]),
   );
+  const ownedQuantities = isOwner ? await getCollectionMap(deck.userId) : new Map();
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-12">
@@ -193,6 +195,7 @@ export default async function DeckDetailPage({
             deckId={deck.id}
             allCards={allCards}
             deckCardQuantities={Object.fromEntries(deckCardQuantities)}
+            ownedQuantities={Object.fromEntries(ownedQuantities)}
             addCardAction={increaseCardAction}
           />
 

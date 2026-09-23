@@ -18,6 +18,7 @@ import {
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DigitalCreateForm } from "../digital-create-form";
 import { Battlefield } from "./battlefield";
+import { getMatchWinCoinAward } from "@/lib/match-rewards";
 
 export default async function DigitalMatchPage({ params }: PageProps<"/play/digital/[id]">) {
   const session = await requireAdminPage();
@@ -130,11 +131,17 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
   if (match.status === "COMPLETED") {
     if (!isParticipant) notFound();
     const iWon = match.winnerId === session.user.id;
+    const coinsAwarded = iWon ? await getMatchWinCoinAward(session.user.id, match.id) : null;
     return (
       <div className="mx-auto w-full max-w-md px-4 py-12 text-center">
         <h1 className="text-3xl font-extrabold tracking-tight">
           {match.winnerId ? (iWon ? "Victory!" : "Defeat") : "Match ended"}
         </h1>
+        {coinsAwarded !== null && (
+          <div className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-5 py-2.5 text-base font-extrabold text-amber-700 shadow">
+            🪙 You earned {coinsAwarded} Coins
+          </div>
+        )}
         <Link href="/play/digital" className="mt-6 inline-block text-blue-600">
           ← Digital Play
         </Link>

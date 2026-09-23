@@ -72,6 +72,17 @@ export default async function Home() {
               </span>
             </div>
             <div className="flex flex-col items-center gap-1.5">
+              <Link
+                href="/store/packs"
+                className="rounded-full border border-amber-300/70 bg-amber-400/20 px-7 py-3 text-sm font-bold uppercase tracking-wide text-white backdrop-blur-sm transition hover:scale-105 hover:bg-amber-400/30"
+              >
+                🪙 Pack Store
+              </Link>
+              <span className="text-xs font-medium text-sky-100">
+                Open packs with Coins
+              </span>
+            </div>
+            <div className="flex flex-col items-center gap-1.5">
               {isAdmin ? (
                 <Link
                   href="/play/digital"

@@ -30,6 +30,7 @@ import {
   ensureSpriteRuntime,
 } from "@/lib/digital-engine/engine";
 import { runBotStep, runBotDefense } from "@/lib/digital-engine/bot";
+import { awardDigitalMatchWinCoins } from "@/lib/match-rewards";
 import { getCardAbilities } from "@/lib/digital-engine/abilities";
 import type { DigitalGameState, EngineCard } from "@/lib/digital-engine/types";
 import { IllegalActionError } from "@/lib/digital-engine/types";
@@ -418,7 +419,7 @@ async function loadMatchForAction(matchId: string, userId: string): Promise<Load
   };
 }
 
-async function persistState(matchId: string, state: DigitalGameState) {
+async function persistState(matchId: string, state: DigitalGameState, mode: string) {
   const isComplete = state.phase === "COMPLETE";
   let winnerUserId: string | null = null;
   if (isComplete && state.winnerIndex !== null) {
@@ -433,6 +434,13 @@ async function persistState(matchId: string, state: DigitalGameState) {
         : {}),
     },
   });
+  // Coins reward: only a REAL completed match with a real winning USER
+  // (never the bot's own null-userId slot, never a draw) — see
+  // awardDigitalMatchWinCoins for the exactly-once guard (DigitalMatch.
+  // coinsAwardedAt) that makes this safe to call on every persist.
+  if (isComplete && winnerUserId) {
+    await awardDigitalMatchWinCoins(matchId, winnerUserId, mode === "BOT" ? "BOT" : "ONLINE");
+  }
 }
 
 function allCardIdsIn(state: DigitalGameState): string[] {
@@ -517,7 +525,7 @@ export async function advanceBotTurnAction(matchId: string) {
   }
 
   if (state !== match.state) {
-    await persistState(matchId, state);
+    await persistState(matchId, state, match.mode);
     revalidatePath(`/play/digital/${matchId}`);
   }
 }
@@ -610,7 +618,7 @@ async function runGameAction(
   const nextSpritesById = await loadSpritesById(next);
   next = await runBotIfNeeded(next, match.botIndex, nextCardsById, nextSpritesById);
 
-  await persistState(matchId, next);
+  await persistState(matchId, next, match.mode);
   revalidatePath(`/play/digital/${matchId}`);
 }
 

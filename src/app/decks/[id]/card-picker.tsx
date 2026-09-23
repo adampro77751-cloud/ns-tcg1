@@ -20,11 +20,17 @@ export function CardPicker({
   deckId,
   allCards,
   deckCardQuantities,
+  ownedQuantities,
   addCardAction,
 }: {
   deckId: string;
   allCards: CardSummary[];
   deckCardQuantities: Record<string, number>;
+  /** From the player's server-side collection (src/lib/collection.ts) —
+   *  display only for now, not enforced as a deck-building limit (see
+   *  the Coins-economy task notes: ownership gating on decks is a later
+   *  decision). */
+  ownedQuantities: Record<string, number>;
   addCardAction: (formData: FormData) => void | Promise<void>;
 }) {
   const [search, setSearch] = useState("");
@@ -147,6 +153,14 @@ export function CardPicker({
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`text-xs font-semibold ${
+                      (ownedQuantities[card.id] ?? 0) > 0 ? "text-violet-600" : "text-slate-400"
+                    }`}
+                    title="Owned in your collection"
+                  >
+                    Owned ×{ownedQuantities[card.id] ?? 0}
+                  </span>
                   {deckCardQuantities[card.id] > 0 && (
                     <span className="text-xs text-slate-500">
                       In deck ×{deckCardQuantities[card.id]}

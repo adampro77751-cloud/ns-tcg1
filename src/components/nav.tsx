@@ -2,10 +2,13 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { logoutAction } from "@/lib/actions/auth-actions";
 import { NavLinks } from "./nav-links";
+import { CoinBalance } from "./coin-balance";
 
 const links = [
   { href: "/play", label: "Play" },
   { href: "/decks", label: "Decks" },
+  { href: "/collection", label: "Collection" },
+  { href: "/store/packs", label: "Packs" },
   { href: "/sprites", label: "Sprites" },
   { href: "/metagame", label: "Metagame" },
   { href: "/players", label: "Players" },
@@ -27,6 +30,7 @@ export async function Nav() {
         <div>
           {session?.user ? (
             <form action={logoutAction} className="flex items-center gap-3">
+              <CoinBalance userId={session.user.id} />
               <Link
                 href={`/player/${session.user.username}`}
                 className="text-sm text-slate-600 hover:text-blue-600"
