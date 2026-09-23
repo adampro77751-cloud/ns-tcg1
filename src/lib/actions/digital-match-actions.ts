@@ -25,7 +25,9 @@ import {
   concede as engConcede,
   activateTimeBomb as engActivateTimeBomb,
   activateStarDrop as engActivateStarDrop,
+  activateSpriteAbility as engActivateSpriteAbility,
   resolveSearchDeckDestination,
+  ensureSpriteRuntime,
 } from "@/lib/digital-engine/engine";
 import { runBotStep, runBotDefense } from "@/lib/digital-engine/bot";
 import { getCardAbilities } from "@/lib/digital-engine/abilities";
@@ -406,7 +408,10 @@ async function loadMatchForAction(matchId: string, userId: string): Promise<Load
     id: match.id,
     status: match.status,
     mode: match.mode,
-    state: match.state as unknown as DigitalGameState,
+    // ensureSpriteRuntime backfills a field added after some in-progress
+    // matches' state was first persisted — every other spriteRuntime
+    // access in the engine assumes it's always present.
+    state: ensureSpriteRuntime(match.state as unknown as DigitalGameState),
     playerIndex: playerIndex as 0 | 1,
     playerIds: [match.players[0]?.userId ?? null, match.players[1]?.userId ?? null],
     botIndex: botIndex === -1 ? null : (botIndex as 0 | 1),
@@ -671,5 +676,20 @@ export async function activateStarDropAction(formData: FormData) {
   const instanceId = String(formData.get("instanceId") ?? "");
   await runGameAction(matchId, (m, cardsById, spritesById) =>
     engActivateStarDrop(m.state, m.playerIndex, instanceId, cardsById, Math.random, spritesById),
+  );
+}
+
+// Activates one of the caller's own unlocked Sprite abilities (see
+// sprite-abilities.ts's SPRITE_ACTIVATED) — Guardian Shield, Relegate,
+// Devil's Health-cost abilities, or Ninja's Sneak Attack (which needs
+// `targetId`, another untired Item the caller controls to swap in as the
+// attacker). Every validation (unlocked, once-per-turn/game, legal
+// target) happens server-side in activateSpriteAbility itself.
+export async function activateSpriteAbilityAction(formData: FormData) {
+  const matchId = String(formData.get("matchId") ?? "");
+  const abilityId = String(formData.get("abilityId") ?? "");
+  const targetId = formData.get("targetId");
+  await runGameAction(matchId, (m, cardsById, spritesById) =>
+    engActivateSpriteAbility(m.state, m.playerIndex, abilityId, cardsById, spritesById, targetId ? String(targetId) : undefined),
   );
 }

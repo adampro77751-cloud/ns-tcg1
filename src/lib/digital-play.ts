@@ -102,7 +102,10 @@ export async function getSpritesByIdMap(
   return new Map(instances.map((s) => [s.id, { slug: s.sprite.slug, level: s.level }]));
 }
 
-// Public-safe Sprite display info for the battlefield UI (name/image/level).
+// Public-safe Sprite display info for the battlefield UI (name/image/level
+// plus every level's real ability text — the ability-menu modal shows this
+// verbatim rather than duplicating it in the engine layer, so the two can
+// never drift; see sprite-abilities.ts's header comment).
 export async function getSpriteDisplayMap(spriteInstanceIds: Iterable<string | null>) {
   const idList = Array.from(new Set(Array.from(spriteInstanceIds).filter((id): id is string => id !== null)));
   if (idList.length === 0) return new Map();
@@ -112,13 +115,40 @@ export async function getSpriteDisplayMap(spriteInstanceIds: Iterable<string | n
       id: true,
       name: true,
       level: true,
-      sprite: { select: { name: true, image: true, rarity: true } },
+      sprite: {
+        select: {
+          slug: true,
+          name: true,
+          image: true,
+          rarity: true,
+          level1Ability: true,
+          level2Ability: true,
+          level3Ability: true,
+          level4Ability: true,
+          level5Ability: true,
+        },
+      },
     },
   });
   return new Map(
     instances.map((s) => [
       s.id,
-      { id: s.id, name: s.name, level: s.level, spriteName: s.sprite.name, image: s.sprite.image, rarity: s.sprite.rarity },
+      {
+        id: s.id,
+        name: s.name,
+        level: s.level,
+        slug: s.sprite.slug,
+        spriteName: s.sprite.name,
+        image: s.sprite.image,
+        rarity: s.sprite.rarity,
+        abilityTextByLevel: [
+          s.sprite.level1Ability,
+          s.sprite.level2Ability,
+          s.sprite.level3Ability,
+          s.sprite.level4Ability,
+          s.sprite.level5Ability,
+        ],
+      },
     ]),
   );
 }

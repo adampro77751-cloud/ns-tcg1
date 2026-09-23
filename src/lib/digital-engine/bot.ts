@@ -7,6 +7,7 @@ import {
   getTargetCandidateIds,
   playItem,
   playSpell,
+  activateSpriteAbility,
   type LegalAction,
 } from "./engine";
 import { getRequiredTarget } from "./abilities";
@@ -82,20 +83,49 @@ export interface BotDecisionProvider {
   ): LegalAction;
 }
 
-// V1: no external AI API. Simple, deterministic priority order — play an
-// Item if it can, then a Spell, then attack with whatever it can, then end
-// turn. "Sensible" for V1 means it never wastes a legal action and always
-// eventually ends its turn; it does not evaluate matchups/board state.
-// (Defending is handled separately by chooseBotDefender below, since it's
-// never part of this priority list — getLegalActions never returns DEFEND/
-// NO_DEFENDER together with the normal action set.)
+// Free/low-risk activated Sprite abilities the Bot always takes when
+// available — no evaluation needed since they have no real downside for a
+// V1 bot (a shield is pure upside; Relegate trades deck-bottom cards for
+// draws, a wash at worst). Devil Sprite's Health-cost abilities are
+// deliberately excluded from this list — see below.
+const FREE_SPRITE_ABILITY_IDS = new Set(["angel-shield", "cosmic-relegate"]);
+// Devil Sprite's own-Health-cost abilities — only ever taken well above a
+// comfortable Health cushion, never risking a meaningful swing in a close
+// game. Ninja Sneak Attack is intentionally never chosen by this V1 bot at
+// all (it only shows up in getLegalActions while the Bot's OWN attack is
+// pending, a window runBotStep never acts in anyway — see its guard below
+// — so this is a moot exclusion in practice, not a special-cased skip).
+const HEALTH_SPRITE_ABILITY_IDS = new Set(["devil-health-draw", "devil-health-item"]);
+const HEALTH_SPRITE_ABILITY_MIN_HEALTH = 100;
+
+// V1: no external AI API. Simple, deterministic priority order — take any
+// free Sprite upside, play an Item if it can, then a Spell, then a
+// Health-cost Sprite ability if comfortably ahead on Health, then attack
+// with whatever it can, then end turn. "Sensible" for V1 means it never
+// wastes a legal action and always eventually ends its turn; it does not
+// evaluate matchups/board state. (Defending is handled separately by
+// chooseBotDefender below, since it's never part of this priority list —
+// getLegalActions never returns DEFEND/NO_DEFENDER together with the
+// normal action set.)
 export const simpleRulesBot: BotDecisionProvider = {
-  chooseAction(_state, _playerIndex, legalActions) {
+  chooseAction(state, playerIndex, legalActions) {
+    const freeAbility = legalActions.find(
+      (a) => a.type === "ACTIVATE_SPRITE_ABILITY" && FREE_SPRITE_ABILITY_IDS.has(a.abilityId),
+    );
+    if (freeAbility) return freeAbility;
+
     const playItemAction = legalActions.find((a) => a.type === "PLAY_ITEM");
     if (playItemAction) return playItemAction;
 
     const playSpellAction = legalActions.find((a) => a.type === "PLAY_SPELL");
     if (playSpellAction) return playSpellAction;
+
+    if (state.players[playerIndex].health > HEALTH_SPRITE_ABILITY_MIN_HEALTH) {
+      const healthAbility = legalActions.find(
+        (a) => a.type === "ACTIVATE_SPRITE_ABILITY" && HEALTH_SPRITE_ABILITY_IDS.has(a.abilityId),
+      );
+      if (healthAbility) return healthAbility;
+    }
 
     const attackAction = legalActions.find((a) => a.type === "ATTACK");
     if (attackAction) return attackAction;
@@ -166,7 +196,7 @@ export function runBotStep(
   // required target has no legal candidate at all (e.g. Coke with no
   // opposing Item to remove) — the Bot, like a human, simply never sees
   // that as an option to choose from.
-  const legalActions = getLegalActions(state, playerIndex, cardsById);
+  const legalActions = getLegalActions(state, playerIndex, cardsById, spritesById);
   const action = provider.chooseAction(state, playerIndex, legalActions, cardsById);
 
   if (action.type === "END_TURN") {
@@ -179,6 +209,13 @@ export function runBotStep(
   if (action.type === "PLAY_SPELL") {
     const target = chooseBotTarget(state, playerIndex, action.instanceId, cardsById, random);
     return playSpell(state, playerIndex, action.instanceId, cardsById, target, spritesById);
+  }
+  if (action.type === "ACTIVATE_SPRITE_ABILITY") {
+    // Only ever reached for non-target abilities (angel-shield, cosmic-
+    // relegate, devil-health-*) — Sneak Attack (needsTarget) only ever
+    // appears in getLegalActions while the Bot's OWN attack is pending, a
+    // window this function's own guard above never lets it act in.
+    return activateSpriteAbility(state, playerIndex, action.abilityId, cardsById, spritesById);
   }
   if (action.type === "ATTACK") {
     return declareAttack(state, playerIndex, action.instanceId, cardsById, spritesById);

@@ -25,6 +25,41 @@ export type StatBuffs = {
   speed: number;
 };
 
+// Runtime state for a player's equipped Sprite's non-passive abilities —
+// everything a flat, always-on numeric bonus (see sprite-abilities.ts's
+// SPRITE_TOPICS) doesn't need. Always present (even with no Sprite
+// equipped, in which case it just stays at its defaults and is never
+// read). See sprite-abilities.ts for what each field backs.
+export type SpriteRuntimeState = {
+  /** Activated-ability ids used THIS TURN (once-per-turn gating). Cleared
+   *  at the start of this player's own next turn. */
+  usedThisTurn: string[];
+  /** Activated/triggered-ability ids used EVER this match (once-per-game
+   *  gating, e.g. Angel Sprite's death-prevention). Never cleared. */
+  usedEver: string[];
+  /** Trigger keys ("healthGain", "healthLoss", "relegate", ...) that have
+   *  already fired once this turn, for "the first time X each turn"
+   *  triggered abilities. Cleared at the start of this player's own next
+   *  turn. */
+  firstThisTurnFired: string[];
+  /** Angel Sprite L4 ("Once per turn, prevent 30 damage dealt to you"):
+   *  remaining incoming-damage prevention pool. Persists across turns
+   *  until consumed (the ability's real text has no "this turn" expiry —
+   *  only a once-per-turn activation limit). */
+  damageShield: number;
+  /** Devil Sprite L5 ("your Items get +40 Attack this turn"): a transient
+   *  bonus added into this player's own Items' Attack in combat, reset to
+   *  0 at the start of this player's own next turn. */
+  turnAttackBonus: number;
+  /** Cosmic Sprite L3/L4 ("the first/an additional card you Relegate each
+   *  turn may be played this turn"): the specific discard instanceIds
+   *  (Relegated this turn) that are playable from discard this turn,
+   *  regardless of card type. Cleared at the start of this player's own
+   *  next turn (any left unplayed simply expire, same as every other
+   *  "this turn" allowance in this engine). */
+  relegatedPlayableIds: string[];
+};
+
 // One physical copy of a card, for the duration of a single match. Distinct
 // from Card.id: two copies of the same Card each get their own
 // CardInstance so they can independently be tired/attacking/buffed/etc.
@@ -72,6 +107,10 @@ export type PlayerGameState = {
    *  lasts and there's no "glance and forget" concept in a persisted
    *  server-authoritative state. */
   handRevealedToOpponent: boolean;
+  /** Runtime state for this player's equipped Sprite's triggered/activated
+   *  abilities — see SpriteRuntimeState. Present and inert if no Sprite is
+   *  equipped. */
+  spriteRuntime: SpriteRuntimeState;
 };
 
 export type GamePhase = "MAIN" | "COMPLETE";
@@ -89,6 +128,11 @@ export type PendingCombat = {
    *  resolveDefense re-validates against the live battlefield, never
    *  trusts this list alone. */
   legalDefenderInstanceIds: string[];
+  /** Ninja Sprite Sneak Attack (L4/L5): a flat Attack bonus for THIS
+   *  combat only, set when the attacking player swaps their attacker via
+   *  the Sneak Attack activated ability (L5 adds +40 to the new
+   *  attacker). Consumed when this combat resolves; never persists. */
+  attackerTempAttackBonus?: number;
 };
 
 export type DigitalGameState = {

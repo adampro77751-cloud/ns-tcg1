@@ -15,7 +15,14 @@ import {
   type GameEvent,
   type TargetRequirement,
 } from "./abilities";
-import { getEquippedSprite, getSpriteTopicBonus, type SpriteEngineData } from "./sprite-abilities";
+import {
+  getEquippedSprite,
+  getSpriteTopicBonus,
+  getSpriteTriggerAbilities,
+  getUnlockedActivatedAbilities,
+  getActivatedAbilityDef,
+  type SpriteEngineData,
+} from "./sprite-abilities";
 
 // ---------------------------------------------------------------------------
 // Combat resolution — PROVISIONAL, see final report.
@@ -72,6 +79,24 @@ import { getEquippedSprite, getSpriteTopicBonus, type SpriteEngineData } from ".
 const MAX_TRIGGER_DEPTH = 2000;
 const ZERO_BUFFS: StatBuffs = { attack: 0, defence: 0, speed: 0 };
 
+function emptySpriteRuntime(): PlayerGameState["spriteRuntime"] {
+  return { usedThisTurn: [], usedEver: [], firstThisTurnFired: [], damageShield: 0, turnAttackBonus: 0, relegatedPlayableIds: [] };
+}
+
+// Backfills PlayerGameState.spriteRuntime for state persisted BEFORE this
+// field existed — a live match's DigitalMatch.state row created before
+// Sprite abilities shipped won't have it, and every other spriteRuntime
+// access in this file assumes it's always present. New state always
+// includes it (see buildPlayerState); this is purely a load-time
+// migration so an old in-progress match doesn't crash the moment its
+// engine functions run again. Call this on every state loaded from
+// storage, before passing it to any other engine function.
+export function ensureSpriteRuntime(state: DigitalGameState): DigitalGameState {
+  if (state.players[0].spriteRuntime && state.players[1].spriteRuntime) return state;
+  const fix = (p: PlayerGameState): PlayerGameState => (p.spriteRuntime ? p : { ...p, spriteRuntime: emptySpriteRuntime() });
+  return { ...state, players: [fix(state.players[0]), fix(state.players[1])] };
+}
+
 function findCardInstance(
   zone: CardInstance[],
   instanceId: string,
@@ -123,7 +148,11 @@ function combatStat(
   spritesById: Map<string, SpriteEngineData>,
 ): number {
   const sprite = getEquippedSprite(state.players[ownerIndex].spriteInstanceId, spritesById);
-  return getEffectiveStat(instance, card, stat) + getSpriteTopicBonus(sprite, stat);
+  // Devil Sprite L5: "your Items get +40 Attack this turn" — a transient
+  // pool (spriteRuntime.turnAttackBonus), reset at this player's own next
+  // turn, added on top of the normal always-on topic bonus.
+  const turnBonus = stat === "attack" ? state.players[ownerIndex].spriteRuntime.turnAttackBonus : 0;
+  return getEffectiveStat(instance, card, stat) + getSpriteTopicBonus(sprite, stat) + turnBonus;
 }
 
 // One shared damage-math implementation for both the real resolution
@@ -162,7 +191,33 @@ function pickStrongestItem(
   return best;
 }
 
-function checkWin(state: DigitalGameState): DigitalGameState {
+const ANGEL_REVIVE_ABILITY_ID = "angel-revive";
+
+// Angel Sprite L5: "The first time you would lose the game, set your
+// Health to 100 instead." A ONCE-PER-GAME safety net, tracked in
+// spriteRuntime.usedEver (never cleared by endTurn) — intercepts a
+// player's health hitting 0-or-below BEFORE checkWin would otherwise end
+// the match for them.
+function tryAngelRevive(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  spritesById: Map<string, SpriteEngineData>,
+): DigitalGameState {
+  const player = state.players[playerIndex];
+  if (player.health > 0) return state;
+  const sprite = getEquippedSprite(player.spriteInstanceId, spritesById);
+  if (!sprite || sprite.slug !== "angel-sprite" || sprite.level < 5) return state;
+  if (player.spriteRuntime.usedEver.includes(ANGEL_REVIVE_ABILITY_ID)) return state;
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    health: 100,
+    spriteRuntime: { ...p.spriteRuntime, usedEver: [...p.spriteRuntime.usedEver, ANGEL_REVIVE_ABILITY_ID] },
+  }));
+}
+
+function checkWin(state: DigitalGameState, spritesById: Map<string, SpriteEngineData> = new Map()): DigitalGameState {
+  state = tryAngelRevive(state, 0, spritesById);
+  state = tryAngelRevive(state, 1, spritesById);
   const [a, b] = state.players;
   if (a.health <= 0 && b.health <= 0) {
     return { ...state, phase: "COMPLETE", winnerIndex: opponentIndex(state.activePlayerIndex) };
@@ -265,6 +320,7 @@ function buildPlayerState(
     damagePreventedThisTurn: false,
     spellsPlayableFromDiscardThisTurn: false,
     handRevealedToOpponent: false,
+    spriteRuntime: emptySpriteRuntime(),
   };
 }
 
@@ -403,9 +459,25 @@ function performRawDamage(
   }
 
   const target = state.players[targetIndex];
-  const actualAmount = target.damagePreventedThisTurn ? 0 : boostedAmount;
+  const shield = target.spriteRuntime.damageShield;
+  // Angel Sprite L4: "Once per turn, prevent 30 damage dealt to you" —
+  // consumes the activated shield pool up to its remaining amount, on top
+  // of (after) Nelson's own full-prevention check.
+  let actualAmount = target.damagePreventedThisTurn ? 0 : boostedAmount;
+  const shieldUsed = shield > 0 ? Math.min(shield, actualAmount) : 0;
+  if (shieldUsed > 0) {
+    actualAmount -= shieldUsed;
+    state = updatePlayer(state, targetIndex, (p) => ({
+      ...p,
+      spriteRuntime: { ...p.spriteRuntime, damageShield: p.spriteRuntime.damageShield - shieldUsed },
+    }));
+    state = {
+      ...state,
+      log: [...state.log, `${describePlayer(targetIndex)}'s Sprite shield absorbs ${shieldUsed} damage.`],
+    };
+  }
   state = updatePlayer(state, targetIndex, (p) => ({ ...p, health: p.health - actualAmount }));
-  state = checkWin(state);
+  state = checkWin(state, spritesById);
   return { state, actualAmount };
 }
 
@@ -432,7 +504,7 @@ function dealDamageWithTrigger(
 ): DigitalGameState {
   const { state: next, actualAmount } = performRawDamage(state, targetIndex, amount, dealtByIndex, spritesById);
   if (next.phase === "COMPLETE" || actualAmount <= 0) return next;
-  return dispatchEvent(
+  let result = dispatchEvent(
     next,
     "DAMAGE_DEALT",
     { dealtByPlayerIndex: dealtByIndex, amount: actualAmount },
@@ -440,6 +512,29 @@ function dealDamageWithTrigger(
     depth + 1,
     spritesById,
   );
+  if (result.phase === "COMPLETE") return result;
+  return dispatchEvent(result, "HEALTH_LOST", { playerIndex: targetIndex }, cardsById, depth + 1, spritesById);
+}
+
+// A player PAYING their own Health as a cost (Devil Sprite's activated
+// abilities) — distinct from dealDamageWithTrigger: no Fire Sprite bonus,
+// no damage-shield/Nelson prevention (a self-chosen cost isn't "damage
+// dealt to you" in the sense those defend against), and no DAMAGE_DEALT
+// dispatch (nothing "dealt" this to them). Still runs checkWin (Angel
+// Sprite's revive can still save a player who pays past 0) and dispatches
+// HEALTH_LOST so Devil's own L5 (and anything else watching for it) fires.
+function loseHealthWithTrigger(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  amount: number,
+  cardsById: Map<string, EngineCard>,
+  depth: number,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
+): DigitalGameState {
+  state = updatePlayer(state, playerIndex, (p) => ({ ...p, health: p.health - amount }));
+  state = checkWin(state, spritesById);
+  if (state.phase === "COMPLETE") return state;
+  return dispatchEvent(state, "HEALTH_LOST", { playerIndex }, cardsById, depth + 1, spritesById);
 }
 
 // Places `instance` onto `playerIndex`'s battlefield: resets tired/buffs
@@ -499,7 +594,15 @@ type EventPayload = {
   dealtByPlayerIndex?: 0 | 1;
   amount?: number;
   enteredInstanceId?: string;
+  /** ITEM_PLAYED/SPELL_PLAYED: who played it. HEALTH_GAINED/HEALTH_LOST:
+   *  who gained/lost it. SPEED_CHECK_WON: who won the check. */
   playerIndex?: 0 | 1;
+  /** SPELL_PLAYED only — the controller's spellsPlayedThisTurn AFTER this
+   *  play, for Water Sprite L3's "your SECOND spell" condition. */
+  spellsPlayedThisTurn?: number;
+  /** DEFENDER_SURVIVED only — the specific defending CardInstance, used
+   *  as the sprite trigger's `thisInstanceId` (see dispatchEvent). */
+  subjectInstanceId?: string;
 };
 
 type EffectRunCtx = {
@@ -551,6 +654,7 @@ function dealDamageMaybeEnqueue(
     const { state: next, actualAmount } = performRawDamage(state, targetIndex, amount, dealtByIndex, ctx.spritesById);
     if (next.phase === "COMPLETE" || actualAmount <= 0) return next;
     ctx.enqueue("DAMAGE_DEALT", { dealtByPlayerIndex: dealtByIndex, amount: actualAmount });
+    ctx.enqueue("HEALTH_LOST", { playerIndex: targetIndex });
     return next;
   }
   return dealDamageWithTrigger(state, targetIndex, amount, dealtByIndex, cardsById, depth, ctx.spritesById);
@@ -642,13 +746,47 @@ function applyEffect(
             // Item's effective Defence destroys it; otherwise no effect.
             const card = cardsById.get(found.instance.cardId);
             const defence = card ? getEffectiveStat(found.instance, card, "defence") : 0;
-            if (amount >= defence) {
-              state = updatePlayer(state, found.ownerIndex, (p) => ({
-                ...p,
-                battlefield: removeFromZone(p.battlefield, found.instance.instanceId),
-                discard: [...p.discard, found.instance],
-              }));
-              state = afterMoveToDiscard(state, found.ownerIndex, found.instance, cardsById, depth, ctx.spritesById);
+            if (amount >= defence && card) {
+              const owner = state.players[found.ownerIndex];
+              const ownerSprite = getEquippedSprite(owner.spriteInstanceId, ctx.spritesById);
+              // Earth Sprite L5: "The first time an Item you control would
+              // be destroyed each turn, it survives with 10 Defence
+              // instead." Scoped to THIS destruction path specifically
+              // (damage vs. an Item's Defence) — the one place this
+              // engine models an Item being conditionally "destroyed" at
+              // all; a hard removal like Coke/Reflection (MOVE_TO_DISCARD)
+              // isn't "destroyed" in that sense and isn't covered.
+              const canPrevent =
+                ownerSprite?.slug === "earth-sprite" &&
+                ownerSprite.level >= 5 &&
+                !owner.spriteRuntime.firstThisTurnFired.includes("earthDestructionPrevented");
+              if (canPrevent) {
+                const overrideBuff = 10 - (card.defence ?? 0);
+                state = updatePlayer(state, found.ownerIndex, (p) => ({
+                  ...p,
+                  battlefield: p.battlefield.map((c) =>
+                    c.instanceId === found.instance.instanceId ? { ...c, buffs: { ...c.buffs, defence: overrideBuff } } : c,
+                  ),
+                  spriteRuntime: {
+                    ...p.spriteRuntime,
+                    firstThisTurnFired: [...p.spriteRuntime.firstThisTurnFired, "earthDestructionPrevented"],
+                  },
+                }));
+                state = {
+                  ...state,
+                  log: [
+                    ...state.log,
+                    `${describePlayer(found.ownerIndex)}'s Earth Sprite prevents ${card.id}'s destruction — it survives with 10 Defence.`,
+                  ],
+                };
+              } else {
+                state = updatePlayer(state, found.ownerIndex, (p) => ({
+                  ...p,
+                  battlefield: removeFromZone(p.battlefield, found.instance.instanceId),
+                  discard: [...p.discard, found.instance],
+                }));
+                state = afterMoveToDiscard(state, found.ownerIndex, found.instance, cardsById, depth, ctx.spritesById);
+              }
             }
             return { state, resolvedTarget: chosen };
           }
@@ -673,6 +811,13 @@ function applyEffect(
           : undefined;
       const boostedAmount = amount + getSpriteTopicBonus(gainerSprite, "healthGained");
       state = updatePlayer(state, targetIndex, (p) => ({ ...p, health: p.health + boostedAmount }));
+      // Angel Sprite L3: "The first time you gain Health each turn, draw
+      // a card." — dispatched the same enqueue-or-recurse way DAMAGE does.
+      if (ctx.enqueue) {
+        ctx.enqueue("HEALTH_GAINED", { playerIndex: targetIndex });
+      } else {
+        state = dispatchEvent(state, "HEALTH_GAINED", { playerIndex: targetIndex }, cardsById, depth + 1, ctx.spritesById);
+      }
       return { state, resolvedTarget: null };
     }
 
@@ -828,10 +973,35 @@ function applyEffect(
       return { state, resolvedTarget: null };
     }
 
+    case "SPRITE_TURN_ATTACK_BONUS": {
+      state = updatePlayer(state, controllerIndex, (p) => ({
+        ...p,
+        spriteRuntime: { ...p.spriteRuntime, turnAttackBonus: amount },
+      }));
+      return { state, resolvedTarget: null };
+    }
+
     case "BUFF_ATTACK":
     case "BUFF_DEFENSE":
     case "BUFF_SPEED": {
       const stat = effect.type === "BUFF_ATTACK" ? "attack" : effect.type === "BUFF_DEFENSE" ? "defence" : "speed";
+      // Earth Sprite L3 ("...it gets +10 Defence"): THIS resolves to the
+      // specific instance carried by the triggering event (see
+      // dispatchEvent's sprite branch, which sets ctx.thisInstanceId to
+      // DEFENDER_SURVIVED's subjectInstanceId) — the controller's own
+      // battlefield only, matching every other THIS usage in this engine.
+      if (effect.target === "THIS") {
+        if (!ctx.thisInstanceId) return { state, resolvedTarget: null };
+        const instance = findCardInstance(state.players[controllerIndex].battlefield, ctx.thisInstanceId);
+        if (!instance) return { state, resolvedTarget: null };
+        state = updatePlayer(state, controllerIndex, (p) => ({
+          ...p,
+          battlefield: p.battlefield.map((c) =>
+            c.instanceId === instance.instanceId ? { ...c, buffs: { ...c.buffs, [stat]: c.buffs[stat] + amount } } : c,
+          ),
+        }));
+        return { state, resolvedTarget: instance.instanceId };
+      }
       if (effect.target === "ALL_ITEMS_IN_PLAY") {
         for (const ownerIndex of [0, 1] as const) {
           state = updatePlayer(state, ownerIndex, (p) => ({
@@ -1154,7 +1324,29 @@ const TRIGGER_LABELS: Record<string, string> = {
   SPELL_PLAYED: "a Spell was played",
   TURN_STARTED: "on turn start",
   TURN_ENDED: "on turn end",
+  SPEED_CHECK_WON: "won a Speed check",
+  HEALTH_GAINED: "on Health gained",
+  HEALTH_LOST: "on Health lost",
+  DEFENDER_SURVIVED: "defender survived",
 };
+
+// Turns a Sprite slug into its display name without hardcoding any
+// specific Sprite — works for every current and future one following the
+// established "word-sprite" slug convention (e.g. "water-sprite" ->
+// "Water Sprite"). Used only for match-log narration; the real Sprite
+// name (which a player may have renamed their instance to) is a separate,
+// purely cosmetic display concern handled client-side.
+function spriteDisplayName(slug: string): string {
+  return slug
+    .split("-")
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(" ");
+}
+
+function describeSpriteTrigger(ownerIndex: 0 | 1, spriteSlug: string, event: GameEvent): string {
+  const label = TRIGGER_LABELS[event] ?? event;
+  return `${describePlayer(ownerIndex)}'s ${spriteDisplayName(spriteSlug)} triggered (${label}).`;
+}
 
 // Board-wide dispatch for ongoing "whenever" triggers — scans every
 // permanent already on either battlefield (for ITEM_ENTERED, excluding the
@@ -1230,6 +1422,70 @@ function dispatchEvent(
           }
         }
       }
+
+      // Sprite triggers — the SAME event, resolved through the SAME
+      // effect executor (applyEffect), reacting to the owner's equipped
+      // Sprite instead of a battlefield permanent. See sprite-abilities.ts
+      // for the full list; SPEED_CHECK_WON/HEALTH_GAINED/HEALTH_LOST/
+      // DEFENDER_SURVIVED only ever fire for the one player named in
+      // payload.playerIndex (never scanned board-wide like DAMAGE_DEALT).
+      const sprite = getEquippedSprite(state.players[ownerIndex].spriteInstanceId, spritesById);
+      if (sprite) {
+        const spriteAbilities = getSpriteTriggerAbilities(sprite.slug, current.event).filter(
+          (a) => a.level <= sprite.level,
+        );
+        for (const ability of spriteAbilities) {
+          if (current.event === "CARD_DRAWN" && current.payload.drawingPlayerIndex !== ownerIndex) continue;
+          if (current.event === "SPELL_PLAYED") {
+            if (current.payload.playerIndex !== ownerIndex) continue;
+            const wanted = ability.condition?.spellCountEquals;
+            if (wanted !== undefined && current.payload.spellsPlayedThisTurn !== wanted) continue;
+          }
+          if (
+            (current.event === "SPEED_CHECK_WON" ||
+              current.event === "HEALTH_GAINED" ||
+              current.event === "HEALTH_LOST" ||
+              current.event === "DEFENDER_SURVIVED") &&
+            current.payload.playerIndex !== ownerIndex
+          ) {
+            continue;
+          }
+          if (current.event === "DAMAGE_DEALT") {
+            if (current.payload.dealtByPlayerIndex !== ownerIndex) continue;
+            const min = ability.condition?.minAmount;
+            if (min !== undefined && (current.payload.amount ?? 0) < min) continue;
+          }
+          const firstKey = ability.condition?.firstPerTurnKey;
+          if (firstKey) {
+            if (state.players[ownerIndex].spriteRuntime.firstThisTurnFired.includes(firstKey)) continue;
+            state = updatePlayer(state, ownerIndex, (p) => ({
+              ...p,
+              spriteRuntime: { ...p.spriteRuntime, firstThisTurnFired: [...p.spriteRuntime.firstThisTurnFired, firstKey] },
+            }));
+          }
+          state = { ...state, log: [...state.log, describeSpriteTrigger(ownerIndex, sprite.slug, current.event)] };
+          let previousTarget: string | null = null;
+          for (const effect of ability.effects) {
+            const result = applyEffect(
+              state,
+              effect,
+              {
+                controllerIndex: ownerIndex,
+                thisInstanceId: current.payload.subjectInstanceId,
+                cardsById,
+                depth: iterations,
+                random: Math.random,
+                spritesById,
+                enqueue,
+              },
+              previousTarget,
+            );
+            state = result.state;
+            if (result.resolvedTarget) previousTarget = result.resolvedTarget;
+            if (state.phase === "COMPLETE") return state;
+          }
+        }
+      }
     }
   }
   return state;
@@ -1252,13 +1508,27 @@ function playCard(
   spritesById: Map<string, SpriteEngineData> = new Map(),
 ): DigitalGameState {
   requireInProgress(state);
-  requireTurn(state, playerIndex);
+  // Water Sprite L4: "You may play Spells during your opponent's turn." —
+  // the one exception to the normal turn-ownership gate, scoped
+  // specifically to Spell plays by a player whose own equipped Sprite
+  // grants it (never the reverse — the ACTIVE player always plays freely
+  // regardless of whose Sprite is equipped).
+  if (state.activePlayerIndex !== playerIndex) {
+    const offTurnSprite = getEquippedSprite(state.players[playerIndex].spriteInstanceId, spritesById);
+    const canPlayOffTurn = expectedType === "Spell" && offTurnSprite?.slug === "water-sprite" && offTurnSprite.level >= 4;
+    if (!canPlayOffTurn) requireTurn(state, playerIndex);
+  }
   requireNoPendingCombat(state);
 
   const player = state.players[playerIndex];
   let inHand = findCardInstance(player.hand, instanceId);
   let fromDiscard = false;
-  if (!inHand && expectedType === "Spell" && player.spellsPlayableFromDiscardThisTurn) {
+  // Cosmic Sprite L3/L4: "the first/an additional card you Relegate each
+  // turn may be played this turn" — relegatedPlayableIds names specific
+  // discard instances playable regardless of card type, on top of Art's
+  // existing (Spell-only) discard allowance.
+  const viaRelegate = player.spriteRuntime.relegatedPlayableIds.includes(instanceId);
+  if (!inHand && ((expectedType === "Spell" && player.spellsPlayableFromDiscardThisTurn) || viaRelegate)) {
     inHand = findCardInstance(player.discard, instanceId);
     fromDiscard = true;
   }
@@ -1281,10 +1551,17 @@ function playCard(
   }
 
   const hasBiologist = player.battlefield.some((c) => cardsById.get(c.cardId)?.slug === "biologist");
-  const itemLimit = 1 + (hasBiologist ? 1 : 0);
+  // Cosmic Sprite L5: "You may play 1 additional Item each turn" — same
+  // shape as Biologist's raised limit, on the Item side (Water L5 is the
+  // Spell-side equivalent, just below).
+  const itemLimit =
+    1 + (hasBiologist ? 1 : 0) + getSpriteTopicBonus(getEquippedSprite(player.spriteInstanceId, spritesById), "extraItemLimit");
 
   if (expectedType === "Item") {
-    const withinBaseLimit = player.itemsPlayedThisTurn < itemLimit;
+    // A Relegated Item play (Cosmic L3/L4) is a fully additional
+    // allowance, same as Art's Spell-from-discard exemption below — it
+    // never consumes or is blocked by the normal per-turn Item limit.
+    const withinBaseLimit = viaRelegate || player.itemsPlayedThisTurn < itemLimit;
     if (!withinBaseLimit) {
       if (player.extraPlaysThisTurn <= 0) {
         throw new IllegalActionError("You've already played an Item this turn.");
@@ -1315,8 +1592,11 @@ function playCard(
     ...p,
     hand: fromDiscard ? p.hand : removeFromZone(p.hand, instanceId),
     discard: fromDiscard ? removeFromZone(p.discard, instanceId) : p.discard,
-    itemsPlayedThisTurn: p.itemsPlayedThisTurn + (expectedType === "Item" ? 1 : 0),
+    itemsPlayedThisTurn: p.itemsPlayedThisTurn + (expectedType === "Item" && !viaRelegate ? 1 : 0),
     spellsPlayedThisTurn: p.spellsPlayedThisTurn + (expectedType === "Spell" && !fromDiscard ? 1 : 0),
+    spriteRuntime: viaRelegate
+      ? { ...p.spriteRuntime, relegatedPlayableIds: p.spriteRuntime.relegatedPlayableIds.filter((id) => id !== instanceId) }
+      : p.spriteRuntime,
   }));
 
   state = {
@@ -1343,7 +1623,14 @@ function playCard(
     if (state.phase !== "COMPLETE") {
       state = updatePlayer(state, playerIndex, (p) => ({ ...p, discard: [...p.discard, inHand] }));
       state = afterMoveToDiscard(state, playerIndex, inHand, cardsById, 0, spritesById);
-      state = dispatchEvent(state, "SPELL_PLAYED", { playerIndex }, cardsById, 1, spritesById);
+      state = dispatchEvent(
+        state,
+        "SPELL_PLAYED",
+        { playerIndex, spellsPlayedThisTurn: state.players[playerIndex].spellsPlayedThisTurn },
+        cardsById,
+        1,
+        spritesById,
+      );
     }
   }
 
@@ -1487,7 +1774,13 @@ export function resolveDefense(
     return { ...state, pendingCombat: null };
   }
   const attackerCard = requireCard(cardsById, attackerInstance.cardId);
-  const attack = combatStat(state, pending.attackingPlayerIndex, attackerInstance, attackerCard, "attack", spritesById);
+  const attackerSprite = getEquippedSprite(state.players[pending.attackingPlayerIndex].spriteInstanceId, spritesById);
+  let attack = combatStat(state, pending.attackingPlayerIndex, attackerInstance, attackerCard, "attack", spritesById);
+  // Ninja Sprite Sneak Attack L5: "the new attacker gets +40 Attack" —
+  // set once, unconditionally, when Sneak Attack swapped the attacker
+  // (see activateSpriteAbility); consumed here, never persists past this
+  // combat.
+  attack += pending.attackerTempAttackBonus ?? 0;
   const attackerSpeed = combatStat(
     state,
     pending.attackingPlayerIndex,
@@ -1511,6 +1804,19 @@ export function resolveDefense(
     };
   }
 
+  // Who "won" this combat's Speed check, per computeDamage's own model:
+  // the defender if their Speed met/beat the attacker's (their Defence
+  // applies), the attacker if the defender was too slow (full Attack goes
+  // through). An unopposed attack has no check to win. See
+  // sprite-abilities.ts's SPEED_CHECK_WON doc comment.
+  const speedCheckWinnerIndex: 0 | 1 | null =
+    defenderStats === null ? null : defenderStats.speed >= attackerSpeed ? playerIndex : pending.attackingPlayerIndex;
+  if (speedCheckWinnerIndex === pending.attackingPlayerIndex) {
+    // Air Sprite L3: "gain +10 Attack for THAT attack" — only meaningful
+    // for the attacking side, applied before computing final damage.
+    attack += getSpriteTopicBonus(attackerSprite, "speedCheckAttackBonus");
+  }
+
   const { damage, logSuffix } = computeDamage(attack, attackerSpeed, defenderStats);
 
   state = {
@@ -1521,7 +1827,28 @@ export function resolveDefense(
       `${describePlayer(pending.attackingPlayerIndex)}'s attack resolved for ${damage} damage (${logSuffix}).`,
     ],
   };
-  return dealDamageWithTrigger(state, playerIndex, damage, pending.attackingPlayerIndex, cardsById, 0, spritesById);
+
+  state = dealDamageWithTrigger(state, playerIndex, damage, pending.attackingPlayerIndex, cardsById, 0, spritesById);
+  if (state.phase === "COMPLETE") return state;
+
+  // Earth Sprite L3: a chosen defender always "survives" under this
+  // engine's combat model (Items are never destroyed by ordinary combat).
+  if (defenderInstanceId !== null) {
+    state = dispatchEvent(
+      state,
+      "DEFENDER_SURVIVED",
+      { playerIndex, subjectInstanceId: defenderInstanceId },
+      cardsById,
+      1,
+      spritesById,
+    );
+    if (state.phase === "COMPLETE") return state;
+  }
+
+  if (speedCheckWinnerIndex !== null) {
+    state = dispatchEvent(state, "SPEED_CHECK_WON", { playerIndex: speedCheckWinnerIndex }, cardsById, 1, spritesById);
+  }
+  return state;
 }
 
 // Pure preview of what resolveDefense would deal for a given candidate
@@ -1542,7 +1869,9 @@ export function previewDefenseDamage(
   );
   if (!attackerInstance) return 0;
   const attackerCard = requireCard(cardsById, attackerInstance.cardId);
-  const attack = combatStat(state, pending.attackingPlayerIndex, attackerInstance, attackerCard, "attack", spritesById);
+  const attackerSprite = getEquippedSprite(state.players[pending.attackingPlayerIndex].spriteInstanceId, spritesById);
+  let attack = combatStat(state, pending.attackingPlayerIndex, attackerInstance, attackerCard, "attack", spritesById);
+  attack += pending.attackerTempAttackBonus ?? 0;
   const attackerSpeed = combatStat(
     state,
     pending.attackingPlayerIndex,
@@ -1556,8 +1885,14 @@ export function previewDefenseDamage(
   const instance = findCardInstance(state.players[pending.defendingPlayerIndex].battlefield, defenderInstanceId);
   if (!instance) return attack;
   const card = requireCard(cardsById, instance.cardId);
+  const defenderSpeed = combatStat(state, pending.defendingPlayerIndex, instance, card, "speed", spritesById);
+  if (defenderSpeed < attackerSpeed) {
+    // Attacker would win the Speed check — Air Sprite L3's conditional
+    // bonus applies, same as the real resolution.
+    attack += getSpriteTopicBonus(attackerSprite, "speedCheckAttackBonus");
+  }
   const { damage } = computeDamage(attack, attackerSpeed, {
-    speed: combatStat(state, pending.defendingPlayerIndex, instance, card, "speed", spritesById),
+    speed: defenderSpeed,
     defence: combatStat(state, pending.defendingPlayerIndex, instance, card, "defence", spritesById),
     cardId: card.id,
   });
@@ -1584,6 +1919,18 @@ export function endTurn(
     damagePreventedThisTurn: false,
     spellsPlayableFromDiscardThisTurn: false,
     battlefield: p.battlefield.map((c) => ({ ...c, activationsThisTurn: 0 })),
+    // Once-per-turn Sprite ability usage, "first this turn" triggers, the
+    // transient Devil L5 Attack bonus, and any still-unplayed Relegated
+    // cards (Cosmic L3/L4) all expire with the turn they belong to.
+    // damageShield (Angel L4) and usedEver (Angel L5) deliberately persist
+    // — see SpriteRuntimeState's field comments.
+    spriteRuntime: {
+      ...p.spriteRuntime,
+      usedThisTurn: [],
+      firstThisTurnFired: [],
+      turnAttackBonus: 0,
+      relegatedPlayableIds: [],
+    },
   }));
 
   state = updatePlayer(state, nextIndex, (p) => ({
@@ -1681,6 +2028,168 @@ export function activateStarDrop(
   return state;
 }
 
+// Every battlefield Item `playerIndex` could Sneak Attack in as the new
+// attacker: their own, untired, and not already the current attacker.
+// Shared by the activation's own validation, the UI's target picker, and
+// the Bot's decision-making, so all three can never disagree.
+export function getSneakAttackCandidateIds(state: DigitalGameState, playerIndex: 0 | 1): string[] {
+  const pending = state.pendingCombat;
+  if (!pending || pending.attackingPlayerIndex !== playerIndex) return [];
+  return state.players[playerIndex].battlefield
+    .filter((c) => !c.tired && c.instanceId !== pending.attackerInstanceId)
+    .map((c) => c.instanceId);
+}
+
+// Resolves every ACTIVATED Sprite ability (see sprite-abilities.ts's
+// SPRITE_ACTIVATED) — too heterogeneous in cost/target/gating shape to
+// express as a small declarative effect list, so each id gets its own
+// bespoke case here, sharing the same validated primitives (loseHealth-
+// WithTrigger, drawWithTrigger, afterMoveToDiscard, ...) every other
+// engine action uses. Ninja Sneak Attack is the one exception to the
+// normal "your own main phase, no pending combat" gating — it's only
+// usable while the CALLER's own attack is awaiting a defender.
+export function activateSpriteAbility(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  abilityId: string,
+  cardsById: Map<string, EngineCard>,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
+  targetInstanceId?: string,
+): DigitalGameState {
+  requireInProgress(state);
+
+  const player = state.players[playerIndex];
+  const sprite = getEquippedSprite(player.spriteInstanceId, spritesById);
+  if (!sprite) throw new IllegalActionError("You have no Sprite equipped.");
+  const def = getActivatedAbilityDef(sprite.slug, abilityId);
+  if (!def || sprite.level < def.level) {
+    throw new IllegalActionError("That Sprite ability isn't unlocked.");
+  }
+
+  if (abilityId === "ninja-sneak-attack") {
+    const pending = state.pendingCombat;
+    if (!pending || pending.attackingPlayerIndex !== playerIndex) {
+      throw new IllegalActionError("Sneak Attack can only be used while your own attack is awaiting a defender.");
+    }
+    if (def.oncePerTurn && player.spriteRuntime.usedThisTurn.includes(def.id)) {
+      throw new IllegalActionError("Sneak Attack has already been used this turn.");
+    }
+    if (!targetInstanceId || !getSneakAttackCandidateIds(state, playerIndex).includes(targetInstanceId)) {
+      throw new IllegalActionError("Choose a different untired Item to Sneak Attack with.");
+    }
+    const oldAttackerId = pending.attackerInstanceId;
+    state = updatePlayer(state, playerIndex, (p) => ({
+      ...p,
+      battlefield: p.battlefield.map((c) => {
+        if (c.instanceId === oldAttackerId) return { ...c, tired: false };
+        if (c.instanceId === targetInstanceId) return { ...c, tired: true };
+        return c;
+      }),
+      spriteRuntime: { ...p.spriteRuntime, usedThisTurn: [...p.spriteRuntime.usedThisTurn, def.id] },
+    }));
+    return {
+      ...state,
+      pendingCombat: {
+        ...pending,
+        attackerInstanceId: targetInstanceId,
+        // Ninja Sprite L5: "the new attacker gets +40 Attack" — set
+        // unconditionally once Sneak Attack is used, consumed at
+        // resolveDefense.
+        attackerTempAttackBonus: sprite.level >= 5 ? 40 : undefined,
+      },
+      log: [...state.log, `${describePlayer(playerIndex)}'s Ninja Sprite Sneak Attack swaps in a new attacker.`],
+    };
+  }
+
+  // Every other activated ability is a normal main-phase action.
+  requireTurn(state, playerIndex);
+  requireNoPendingCombat(state);
+  if (def.oncePerTurn && player.spriteRuntime.usedThisTurn.includes(def.id)) {
+    throw new IllegalActionError("That Sprite ability has already been used this turn.");
+  }
+  if (def.oncePerGame && player.spriteRuntime.usedEver.includes(def.id)) {
+    throw new IllegalActionError("That Sprite ability has already been used this game.");
+  }
+
+  const markUsed = (p: PlayerGameState): PlayerGameState => ({
+    ...p,
+    spriteRuntime: {
+      ...p.spriteRuntime,
+      usedThisTurn: def.oncePerTurn ? [...p.spriteRuntime.usedThisTurn, def.id] : p.spriteRuntime.usedThisTurn,
+      usedEver: def.oncePerGame ? [...p.spriteRuntime.usedEver, def.id] : p.spriteRuntime.usedEver,
+    },
+  });
+
+  if (abilityId === "devil-health-draw" || abilityId === "devil-health-item") {
+    const cost = def.costHealth ?? 0;
+    state = updatePlayer(state, playerIndex, markUsed);
+    state = loseHealthWithTrigger(state, playerIndex, cost, cardsById, 0, spritesById);
+    if (state.phase === "COMPLETE") return state;
+    state = {
+      ...state,
+      log: [...state.log, `${describePlayer(playerIndex)}'s Devil Sprite: ${def.name} (-${cost} Health).`],
+    };
+    if (abilityId === "devil-health-draw") {
+      return drawWithTrigger(state, playerIndex, cardsById, 0, spritesById);
+    }
+    return updatePlayer(state, playerIndex, (p) => ({ ...p, extraPlaysThisTurn: p.extraPlaysThisTurn + 1 }));
+  }
+
+  if (abilityId === "angel-shield") {
+    state = updatePlayer(state, playerIndex, (p) =>
+      markUsed({ ...p, spriteRuntime: { ...p.spriteRuntime, damageShield: 30 } }),
+    );
+    return {
+      ...state,
+      log: [
+        ...state.log,
+        `${describePlayer(playerIndex)}'s Angel Sprite raises a Guardian Shield (prevents up to 30 damage).`,
+      ],
+    };
+  }
+
+  if (abilityId === "cosmic-relegate") {
+    // "Relegate X moves the top X cards of the relevant deck into the
+    // relegated (discard) area" (Rules page) — literally the existing
+    // discard pile, so this needs no new zone at all.
+    const n = sprite.level >= 2 ? 2 : 1;
+    const deck = player.deck;
+    const toRelegate = deck.slice(0, n);
+    if (toRelegate.length === 0) {
+      throw new IllegalActionError("Your deck is empty — nothing to Relegate.");
+    }
+    state = updatePlayer(state, playerIndex, (p) =>
+      markUsed({ ...p, deck: p.deck.slice(toRelegate.length), discard: [...p.discard, ...toRelegate] }),
+    );
+    state = {
+      ...state,
+      log: [...state.log, `${describePlayer(playerIndex)}'s Cosmic Sprite Relegates ${toRelegate.length} card(s).`],
+    };
+    for (const instance of toRelegate) {
+      state = afterMoveToDiscard(state, playerIndex, instance, cardsById, 0, spritesById);
+      if (state.phase === "COMPLETE") return state;
+    }
+    // L3/L4: "the first/an additional card you Relegate each turn may be
+    // played this turn" — capped to however many of THIS activation's
+    // Relegated cards (in top-of-deck order) become playable from discard.
+    const playableCap = sprite.level >= 4 ? 2 : sprite.level >= 3 ? 1 : 0;
+    if (playableCap > 0) {
+      const eligible = toRelegate.slice(0, playableCap).map((c) => c.instanceId);
+      state = updatePlayer(state, playerIndex, (p) => ({
+        ...p,
+        spriteRuntime: { ...p.spriteRuntime, relegatedPlayableIds: eligible },
+      }));
+    }
+    for (let i = 0; i < n; i++) {
+      state = drawWithTrigger(state, playerIndex, cardsById, 0, spritesById);
+      if (state.phase === "COMPLETE") return state;
+    }
+    return state;
+  }
+
+  throw new IllegalActionError("Unknown Sprite ability.");
+}
+
 // ---------------------------------------------------------------------------
 // Legal-action introspection
 // ---------------------------------------------------------------------------
@@ -1691,6 +2200,7 @@ export type LegalAction =
   | { type: "ATTACK"; instanceId: string }
   | { type: "ACTIVATE_TIME_BOMB"; instanceId: string }
   | { type: "ACTIVATE_STAR_DROP"; instanceId: string }
+  | { type: "ACTIVATE_SPRITE_ABILITY"; abilityId: string; needsTarget: boolean }
   | { type: "DEFEND"; instanceId: string }
   | { type: "NO_DEFENDER" }
   | { type: "END_TURN" };
@@ -1765,18 +2275,40 @@ function matchesDiscardFilter(
   return cardsById.get(instance.cardId)?.type === wantedType;
 }
 
+// The ONLY thing the ATTACKING player can do while their own attack is
+// awaiting a defender: Ninja Sprite Sneak Attack, if unlocked, unused this
+// turn, and at least one eligible swap-in Item exists.
+function getSneakAttackLegalAction(
+  state: DigitalGameState,
+  playerIndex: 0 | 1,
+  spritesById: Map<string, SpriteEngineData>,
+): LegalAction[] {
+  const player = state.players[playerIndex];
+  const sprite = getEquippedSprite(player.spriteInstanceId, spritesById);
+  const def = sprite ? getActivatedAbilityDef(sprite.slug, "ninja-sneak-attack") : undefined;
+  if (!sprite || !def || sprite.level < def.level) return [];
+  if (player.spriteRuntime.usedThisTurn.includes(def.id)) return [];
+  if (getSneakAttackCandidateIds(state, playerIndex).length === 0) return [];
+  return [{ type: "ACTIVATE_SPRITE_ABILITY", abilityId: def.id, needsTarget: true }];
+}
+
 export function getLegalActions(
   state: DigitalGameState,
   playerIndex: 0 | 1,
   cardsById: Map<string, EngineCard>,
+  spritesById: Map<string, SpriteEngineData> = new Map(),
 ): LegalAction[] {
   if (state.phase === "COMPLETE") return [];
 
   // While an attack is awaiting a defender, ONLY the defending player has
   // anything to do — pick one of their own untired battlefield Items, or
-  // explicitly take the attack undefended. The attacking player (still
-  // nominally "on turn") and anyone else get nothing until this resolves.
+  // explicitly take the attack undefended — EXCEPT the attacking player
+  // (still nominally "on turn"), who can still use Ninja Sneak Attack if
+  // they have it, and no one else gets anything until this resolves.
   if (state.pendingCombat) {
+    if (state.pendingCombat.attackingPlayerIndex === playerIndex) {
+      return getSneakAttackLegalAction(state, playerIndex, spritesById);
+    }
     if (state.pendingCombat.defendingPlayerIndex !== playerIndex) return [];
     const defenderActions: LegalAction[] = state.players[playerIndex].battlefield
       .filter((c) => !c.tired)
@@ -1785,13 +2317,36 @@ export function getLegalActions(
     return defenderActions;
   }
 
-  if (state.activePlayerIndex !== playerIndex) return [];
-
   const player = state.players[playerIndex];
+
+  if (state.activePlayerIndex !== playerIndex) {
+    // Water Sprite L4: "You may play Spells during your opponent's turn."
+    // The ONLY thing an off-turn player can do — still gated by their own
+    // normal per-turn Spell limit/extra-plays pool (which only resets at
+    // the start of THEIR OWN next turn, exactly like a same-turn play).
+    const offTurnSprite = getEquippedSprite(player.spriteInstanceId, spritesById);
+    if (!(offTurnSprite?.slug === "water-sprite" && offTurnSprite.level >= 4)) return [];
+    if (state.spellsLockedForRestOfGame) return [];
+    const canPlaySpell =
+      player.unlimitedSpellsThisTurn || player.spellsPlayedThisTurn < 1 || player.extraPlaysThisTurn > 0;
+    if (!canPlaySpell) return [];
+    const offTurnActions: LegalAction[] = [];
+    for (const c of player.hand) {
+      if (
+        requireCard(cardsById, c.cardId).type === "Spell" &&
+        hasPlayableTarget(state, playerIndex, c.cardId, cardsById)
+      ) {
+        offTurnActions.push({ type: "PLAY_SPELL", instanceId: c.instanceId });
+      }
+    }
+    return offTurnActions;
+  }
+
   const actions: LegalAction[] = [];
 
   const hasBiologist = player.battlefield.some((c) => cardsById.get(c.cardId)?.slug === "biologist");
-  const itemLimit = 1 + (hasBiologist ? 1 : 0);
+  const itemLimit =
+    1 + (hasBiologist ? 1 : 0) + getSpriteTopicBonus(getEquippedSprite(player.spriteInstanceId, spritesById), "extraItemLimit");
   const canPlayItem = player.itemsPlayedThisTurn < itemLimit || player.extraPlaysThisTurn > 0;
   const canPlaySpell =
     player.unlimitedSpellsThisTurn || player.spellsPlayedThisTurn < 1 || player.extraPlaysThisTurn > 0;
@@ -1842,6 +2397,35 @@ export function getLegalActions(
       actions.push({ type: "ACTIVATE_STAR_DROP", instanceId: c.instanceId });
     }
   }
+
+  // Cosmic Sprite L3/L4: Relegated cards playable from discard this turn,
+  // regardless of type — a fully additional allowance, same as Art's.
+  for (const id of player.spriteRuntime.relegatedPlayableIds) {
+    const instance = player.discard.find((c) => c.instanceId === id);
+    if (!instance) continue;
+    const type = cardsById.get(instance.cardId)?.type ?? null;
+    if (!hasPlayableTarget(state, playerIndex, instance.cardId, cardsById)) continue;
+    if (type === "Spell" && !state.spellsLockedForRestOfGame) {
+      actions.push({ type: "PLAY_SPELL", instanceId: id });
+    } else if (isPlayableAsItem(type) && !state.itemsLockedForRestOfGame) {
+      actions.push({ type: "PLAY_ITEM", instanceId: id });
+    }
+  }
+
+  // Activated Sprite abilities usable from the main phase (Sneak Attack
+  // is handled entirely in the pendingCombat branch above, since it's
+  // only ever usable during the caller's own pending attack).
+  const sprite = getEquippedSprite(player.spriteInstanceId, spritesById);
+  if (sprite) {
+    for (const def of getUnlockedActivatedAbilities(sprite.slug, sprite.level)) {
+      if (def.needsTarget) continue;
+      if (def.oncePerTurn && player.spriteRuntime.usedThisTurn.includes(def.id)) continue;
+      if (def.oncePerGame && player.spriteRuntime.usedEver.includes(def.id)) continue;
+      if (def.id === "cosmic-relegate" && player.deck.length === 0) continue;
+      actions.push({ type: "ACTIVATE_SPRITE_ABILITY", abilityId: def.id, needsTarget: false });
+    }
+  }
+
   actions.push({ type: "END_TURN" });
   return actions;
 }
@@ -1883,6 +2467,11 @@ export function getVisibleState(state: DigitalGameState, viewerIndex: 0 | 1): Vi
     damagePreventedThisTurn: p.damagePreventedThisTurn,
     spellsPlayableFromDiscardThisTurn: p.spellsPlayableFromDiscardThisTurn,
     handRevealedToOpponent: p.handRevealedToOpponent,
+    // Sprite ability usage/shield/turn-bonus state is public (both sides
+    // already see the opponent's whole battlefield/discard) — needed for
+    // the Sprite badge UI's ability menu (what's usable right now, and
+    // why not).
+    spriteRuntime: p.spriteRuntime,
   });
 
   return {

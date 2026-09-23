@@ -47,7 +47,12 @@ export type EffectType =
   | "REVEAL_HAND"
   | "ADD_CHARGE"
   | "SEARCH_DECK"
-  | "LOCK_CARD_TYPE";
+  | "LOCK_CARD_TYPE"
+  /** Sprite-only (Devil Sprite L5): sets a transient, THIS-TURN-ONLY
+   *  Attack bonus for the controller's own Items (PlayerGameState.
+   *  spriteRuntime.turnAttackBonus), reset at their own next turn start —
+   *  distinct from BUFF_ATTACK, which is a permanent CardInstance buff. */
+  | "SPRITE_TURN_ATTACK_BONUS";
 
 export type GameEvent =
   | "CARD_PLAYED"
@@ -58,6 +63,29 @@ export type GameEvent =
   | "CARD_DISCARDED"
   | "DAMAGE_DEALT"
   | "ATTACK_STARTED"
+  // ---- Sprite-only events (dispatched to a player's equipped Sprite,
+  // never subscribed to by CARD_ABILITIES) — see sprite-abilities.ts. ----
+  /** Fires for whichever side's Speed was the deciding one in a DEFENDED
+   *  combat (payload.playerIndex = that side) — the attacker if the
+   *  defender was too slow (full Attack went through), or the defender if
+   *  their Speed met/beat the attacker's (their Defence applied). An
+   *  unopposed attack (no defender chosen) has no check to win, so never
+   *  fires this. */
+  | "SPEED_CHECK_WON"
+  /** Fires for the player who gained Health, after GAIN_HEALTH applies
+   *  (payload.playerIndex = the gainer). */
+  | "HEALTH_GAINED"
+  /** Fires for the player who lost Health, from ANY source — opponent
+   *  damage or a Sprite's own self-paid cost (payload.playerIndex = the
+   *  one who lost it). */
+  | "HEALTH_LOST"
+  /** Fires for the defending player's controller when their own Item was
+   *  chosen as a defender and combat resolved (payload.playerIndex = that
+   *  controller, payload.subjectInstanceId = the defending instance) —
+   *  every defender "survives" under this engine's combat model (Items
+   *  are never destroyed by ordinary combat), so this fires whenever a
+   *  real defender (not "no defender") was chosen. */
+  | "DEFENDER_SURVIVED"
   | "TURN_STARTED"
   | "TURN_ENDED";
 
@@ -104,8 +132,21 @@ export type AbilitySpec = {
    *  on the battlefield (see engine.ts's dispatchEvent). */
   trigger: GameEvent | "ON_PLAY";
   effects: EffectSpec[];
-  /** Only checked for DAMAGE_DEALT triggers (Cutlary: "30 or more damage"). */
-  condition?: { minAmount?: number };
+  condition?: {
+    /** Only checked for DAMAGE_DEALT triggers (Cutlary: "30 or more
+     *  damage"; Fire Sprite L3: "over 100 damage at 1 time" — threshold
+     *  101, an integer-exclusive floor). */
+    minAmount?: number;
+    /** Only checked for SPELL_PLAYED triggers (Water Sprite L3: "your
+     *  SECOND spell in a turn") — requires payload.spellsPlayedThisTurn to
+     *  equal this exact count. */
+    spellCountEquals?: number;
+    /** Sprite-only: gates a triggered ability to firing at most once per
+     *  turn, keyed by an arbitrary stable string (Angel L3 "healthGain",
+     *  Devil L5 "healthLoss") tracked in
+     *  PlayerGameState.spriteRuntime.firstThisTurnFired. */
+    firstPerTurnKey?: string;
+  };
 };
 
 // Keyed by Card.slug. A card with no entry here simply has no coded

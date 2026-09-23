@@ -14,10 +14,13 @@ import {
   shuffle,
   activateTimeBomb,
   activateStarDrop,
+  activateSpriteAbility,
+  getSneakAttackCandidateIds,
+  ensureSpriteRuntime,
 } from "./engine";
 import { getRequiredTarget, getAttackTriggerTarget } from "./abilities";
 import { simpleRulesBot, runBotTurn, runBotStep, chooseBotDefender, runBotDefense } from "./bot";
-import { getSpriteTopicBonus, type SpriteEngineData } from "./sprite-abilities";
+import { getSpriteTopicBonus, getUnlockedActivatedAbilities, type SpriteEngineData } from "./sprite-abilities";
 import { IllegalActionError } from "./types";
 import type { DigitalGameState, EngineCard } from "./types";
 
@@ -1484,6 +1487,697 @@ describe("sprite abilities", () => {
     const spellB = state.players[0].hand.find((c) => c.cardId === SPELL_B_TEST.id)!;
     state = playSpell(state, 0, spellA.instanceId, cards, undefined, spritesById);
     expect(() => playSpell(state, 0, spellB.instanceId, cards, undefined, spritesById)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sprite abilities V2 — TRIGGERED and ACTIVATED, on top of the existing
+// flat-numeric-topic PASSIVE bonuses tested above. Every one of the 8
+// seeded Sprites' 40 real level abilities (prisma/seed.ts) now has SOME
+// mechanical implementation; see sprite-abilities.ts's header comment for
+// the full PASSIVE/TRIGGERED/ACTIVATED breakdown.
+// ---------------------------------------------------------------------------
+
+describe("sprite abilities — triggered and activated", () => {
+  it("Water Sprite L3 draws a card when the controller plays their SECOND spell in a turn (not the first)", () => {
+    const cards = new Map<string, EngineCard>([[SPELL_A.id, SPELL_A], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["water-l3", { slug: "water-sprite", level: 3 }]]);
+    let state = createGameState({
+      matchId: "water-l3",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "water-l3", cardIds: [SPELL_A.id, SPELL_A.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = forceToHand(state, 0, SPELL_A.id);
+    state = forceToHand(state, 0, SPELL_A.id);
+    // Water L3 alone doesn't grant permission to play a SECOND spell that
+    // turn (that's L5's separate "extraSpellLimit" ability) — grant it
+    // directly here so this test isolates L3's trigger specifically,
+    // without also implicitly testing L5.
+    state = { ...state, players: [{ ...state.players[0], extraPlaysThisTurn: 1 }, state.players[1]] };
+    const [first, second] = state.players[0].hand.filter((c) => c.cardId === SPELL_A.id);
+    state = playSpell(state, 0, first.instanceId, cards, undefined, spritesById);
+    const handAfterFirst = state.players[0].hand.length; // no draw yet — this was the FIRST spell
+    state = playSpell(state, 0, second.instanceId, cards, undefined, spritesById);
+    // Second spell leaves hand (-1); Water L3 draws (+1) — net unchanged,
+    // proving a draw actually happened (otherwise it would be -1).
+    expect(state.players[0].hand.length).toBe(handAfterFirst - 1 + 1);
+  });
+
+  it("Fire Sprite L3 draws a card when dealing over 100 damage in a single hit", () => {
+    const BIG_ITEM: EngineCard = { id: "big-item", slug: "big-item", type: "Item", attack: 90, defence: 0, speed: 0 };
+    const cards = new Map<string, EngineCard>([[BIG_ITEM.id, BIG_ITEM], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["fire-l3", { slug: "fire-sprite", level: 3 }]]);
+    let state = createGameState({
+      matchId: "fire-l3",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "fire-l3", cardIds: [BIG_ITEM.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = forceToHand(state, 0, BIG_ITEM.id);
+    const bigItem = state.players[0].hand.find((c) => c.cardId === BIG_ITEM.id)!;
+    state = playItem(state, 0, bigItem.instanceId, cards, undefined, spritesById);
+    const handBefore = state.players[0].hand.length;
+    // 90 base + 20 (Fire L2 topic, highest <=L3) = 110 damage, unopposed — over 100 in one hit.
+    state = declareAttack(state, 0, state.players[0].battlefield[0].instanceId, cards, spritesById);
+    expect(state.players[0].hand.length).toBe(handBefore + 1);
+  });
+
+  it("Air Sprite L3+L5: winning a Speed check as the attacker adds +10 Attack for that attack and draws a card", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_STRONG.id, ITEM_STRONG], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["air-l5", { slug: "air-sprite", level: 5 }]]);
+    let state = createGameState({
+      matchId: "air-l3-l5",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "air-l5", cardIds: [ITEM_STRONG.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, ITEM_STRONG.id, "atk-1");
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "def-1");
+    const handBefore = state.players[0].hand.length;
+    const healthBefore = state.players[1].health;
+    state = declareAttack(state, 0, "atk-1", cards, spritesById);
+    state = resolveDefense(state, 1, "def-1", cards, spritesById);
+    // Attacker speed(20) beats defender speed(5) — defender too slow, full
+    // Attack goes through: 50 base + 10 (Air L3) = 60 damage.
+    expect(state.players[1].health).toBe(healthBefore - 60);
+    expect(state.players[0].hand.length).toBe(handBefore + 1); // Air L5 drew a card
+  });
+
+  it("Ninja Sprite L3: winning a Speed check draws a card for whichever side won it", () => {
+    const FAST_DEFENDER: EngineCard = { id: "fast-def", slug: "fast-def", type: "Item", attack: 0, defence: 30, speed: 100 };
+    const cards = new Map<string, EngineCard>([[ITEM_STRONG.id, ITEM_STRONG], [FAST_DEFENDER.id, FAST_DEFENDER], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["ninja-l3", { slug: "ninja-sprite", level: 3 }]]);
+    let state = createGameState({
+      matchId: "ninja-l3",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_STRONG.id] },
+        { userId: "u2", spriteInstanceId: "ninja-l3", cardIds: [FAST_DEFENDER.id, ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, ITEM_STRONG.id, "atk-1");
+    state = putOnBattlefield(state, 1, FAST_DEFENDER.id, "def-1");
+    const handBefore = state.players[1].hand.length;
+    state = declareAttack(state, 0, "atk-1", cards, spritesById);
+    // Defender's Speed (100) beats the attacker's (20) — the DEFENDER wins
+    // the Speed check this time, so THEIR Ninja Sprite draws.
+    state = resolveDefense(state, 1, "def-1", cards, spritesById);
+    expect(state.players[1].hand.length).toBe(handBefore + 1);
+  });
+
+  it("Ninja Sprite Sneak Attack (L4) swaps the attacker mid-combat; L5 gives the new attacker +40 Attack", () => {
+    const WEAK_ATTACKER: EngineCard = { id: "weak-atk", slug: "weak-atk", type: "Item", attack: 5, defence: 5, speed: 5 };
+    const STRONG_BACKUP: EngineCard = { id: "strong-backup", slug: "strong-backup", type: "Item", attack: 30, defence: 5, speed: 5 };
+    const cards = new Map<string, EngineCard>([[WEAK_ATTACKER.id, WEAK_ATTACKER], [STRONG_BACKUP.id, STRONG_BACKUP], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["ninja-sneak", { slug: "ninja-sprite", level: 5 }]]);
+    let state = createGameState({
+      matchId: "ninja-sneak",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "ninja-sneak", cardIds: [WEAK_ATTACKER.id, STRONG_BACKUP.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, WEAK_ATTACKER.id, "weak-1");
+    state = putOnBattlefield(state, 0, STRONG_BACKUP.id, "strong-1");
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "def-1");
+    state = declareAttack(state, 0, "weak-1", cards, spritesById);
+    expect(state.pendingCombat?.attackerInstanceId).toBe("weak-1");
+    expect(getSneakAttackCandidateIds(state, 0)).toEqual(["strong-1"]);
+
+    state = activateSpriteAbility(state, 0, "ninja-sneak-attack", cards, spritesById, "strong-1");
+    expect(state.pendingCombat?.attackerInstanceId).toBe("strong-1");
+    expect(state.players[0].battlefield.find((c) => c.instanceId === "weak-1")?.tired).toBe(false);
+    expect(state.players[0].battlefield.find((c) => c.instanceId === "strong-1")?.tired).toBe(true);
+    expect(state.pendingCombat?.attackerTempAttackBonus).toBe(40);
+
+    const healthBefore = state.players[1].health;
+    state = resolveDefense(state, 1, "def-1", cards, spritesById);
+    // New attacker's base Speed(5) PLUS the attacking player's own Ninja
+    // Sprite passive Speed topic (+20 at L2+) = 25, beating the defender's
+    // base Speed(5) — defender too slow, full Attack goes through
+    // unmitigated: 30 (base) + 40 (Sneak Attack L5 bonus) = 70.
+    expect(state.players[1].health).toBe(healthBefore - 70);
+  });
+
+  it("Ninja Sneak Attack can only be used once per turn", () => {
+    const A: EngineCard = { id: "a-atk", slug: "a-atk", type: "Item", attack: 5, defence: 5, speed: 5 };
+    const B: EngineCard = { id: "b-backup", slug: "b-backup", type: "Item", attack: 5, defence: 5, speed: 5 };
+    const C: EngineCard = { id: "c-backup", slug: "c-backup", type: "Item", attack: 5, defence: 5, speed: 5 };
+    const cards = new Map<string, EngineCard>([[A.id, A], [B.id, B], [C.id, C], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["ninja-once", { slug: "ninja-sprite", level: 4 }]]);
+    let state = createGameState({
+      matchId: "ninja-once",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "ninja-once", cardIds: [A.id, B.id, C.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, A.id, "a-1");
+    state = putOnBattlefield(state, 0, B.id, "b-1");
+    state = putOnBattlefield(state, 0, C.id, "c-1");
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "def-1");
+    state = declareAttack(state, 0, "a-1", cards, spritesById);
+    state = activateSpriteAbility(state, 0, "ninja-sneak-attack", cards, spritesById, "b-1");
+    expect(() => activateSpriteAbility(state, 0, "ninja-sneak-attack", cards, spritesById, "c-1")).toThrow(
+      IllegalActionError,
+    );
+  });
+
+  it("Earth Sprite L3: a chosen defender always survives and gets a permanent +10 Defence buff", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_STRONG.id, ITEM_STRONG], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["earth-l3", { slug: "earth-sprite", level: 3 }]]);
+    let state = createGameState({
+      matchId: "earth-l3",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [ITEM_STRONG.id] },
+        { userId: "u2", spriteInstanceId: "earth-l3", cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, ITEM_STRONG.id, "atk-1");
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "def-1");
+    state = declareAttack(state, 0, "atk-1", cards, spritesById);
+    state = resolveDefense(state, 1, "def-1", cards, spritesById);
+    expect(state.players[1].battlefield.find((c) => c.instanceId === "def-1")?.buffs.defence).toBe(10);
+  });
+
+  it("Earth Sprite L5: the first time an Item you control would be destroyed each turn, it survives with 10 Defence instead", () => {
+    const PARKER_EARTH: EngineCard = { id: "parker-earth", slug: "parker", type: "Spell", attack: null, defence: null, speed: null };
+    const cards = new Map<string, EngineCard>([[PARKER_EARTH.id, PARKER_EARTH], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["earth-l5", { slug: "earth-sprite", level: 5 }]]);
+    let state = createGameState({
+      matchId: "earth-l5",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [PARKER_EARTH.id] },
+        { userId: "u2", spriteInstanceId: "earth-l5", cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 1, ITEM_WEAK.id, "weak-1");
+    const parker = state.players[0].hand.find((c) => c.cardId === PARKER_EARTH.id)!;
+    // Parker deals 100 damage — normally >= ITEM_WEAK's 40 Defence destroys it.
+    state = playSpell(state, 0, parker.instanceId, cards, "item:weak-1", spritesById);
+    const item = state.players[1].battlefield.find((c) => c.instanceId === "weak-1");
+    expect(item).toBeDefined(); // NOT destroyed
+    expect((item!.buffs.defence + (ITEM_WEAK.defence ?? 0))).toBe(10); // effective Defence overridden to 10
+  });
+
+  it("Angel Sprite L3: only the FIRST Health gain each turn draws a card", () => {
+    const PARKER_ANGEL: EngineCard = { id: "parker-angel", slug: "parker", type: "Spell", attack: null, defence: null, speed: null };
+    const cards = new Map<string, EngineCard>([[PARKER_ANGEL.id, PARKER_ANGEL], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["angel-l3", { slug: "angel-sprite", level: 3 }]]);
+    let state = createGameState({
+      matchId: "angel-l3",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "angel-l3", cardIds: [PARKER_ANGEL.id, PARKER_ANGEL.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_WEAK.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = forceToHand(state, 0, PARKER_ANGEL.id);
+    state = forceToHand(state, 0, PARKER_ANGEL.id);
+    // Grant a second Spell play this turn directly (Angel Sprite has
+    // nothing like Water L5 to do this itself) so the test can isolate L3's
+    // trigger without needing a second card/mechanic just to unlock it.
+    state = { ...state, players: [{ ...state.players[0], extraPlaysThisTurn: 1 }, state.players[1]] };
+    const [p1, p2] = state.players[0].hand.filter((c) => c.cardId === PARKER_ANGEL.id);
+    const handBefore = state.players[0].hand.length;
+    state = playSpell(state, 0, p1.instanceId, cards, "player:1", spritesById);
+    // p1 leaves hand (-1), Angel L3 draws (+1) — net unchanged.
+    expect(state.players[0].hand.length).toBe(handBefore - 1 + 1);
+    const handAfterFirst = state.players[0].hand.length;
+    state = playSpell(state, 0, p2.instanceId, cards, "player:1", spritesById);
+    // Second gain this turn — no extra draw, just -1 for playing p2.
+    expect(state.players[0].hand.length).toBe(handAfterFirst - 1);
+  });
+
+  it("Angel Sprite L4 Guardian Shield prevents up to 30 damage, once per turn", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_STRONG.id, ITEM_STRONG]]);
+    const spritesById = new Map<string, SpriteEngineData>([["angel-l4", { slug: "angel-sprite", level: 4 }]]);
+    let state = createGameState({
+      matchId: "angel-l4",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "angel-l4", cardIds: [] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [ITEM_STRONG.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = activateSpriteAbility(state, 0, "angel-shield", cards, spritesById);
+    expect(state.players[0].spriteRuntime.damageShield).toBe(30);
+    expect(() => activateSpriteAbility(state, 0, "angel-shield", cards, spritesById)).toThrow(IllegalActionError);
+
+    state = putOnBattlefield(state, 1, ITEM_STRONG.id, "atk-1");
+    state = endTurn(state, cards, spritesById); // player 1's turn, so THEY can declare the attack
+    const healthBefore = state.players[0].health;
+    state = declareAttack(state, 1, "atk-1", cards, spritesById); // unopposed (player 0's battlefield is empty)
+    expect(state.players[0].health).toBe(healthBefore - (ITEM_STRONG.attack! - 30));
+    expect(state.players[0].spriteRuntime.damageShield).toBe(0);
+  });
+
+  it("Devil Sprite L3: Trade Health for a Card costs 20 Health, once per turn", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["devil-l3", { slug: "devil-sprite", level: 3 }]]);
+    let state = createGameState({
+      matchId: "devil-l3",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "devil-l3", cardIds: [ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const healthBefore = state.players[0].health;
+    const handBefore = state.players[0].hand.length;
+    state = activateSpriteAbility(state, 0, "devil-health-draw", cards, spritesById);
+    expect(state.players[0].health).toBe(healthBefore - 20);
+    expect(state.players[0].hand.length).toBe(handBefore + 1);
+    expect(() => activateSpriteAbility(state, 0, "devil-health-draw", cards, spritesById)).toThrow(IllegalActionError);
+  });
+
+  it("Devil Sprite L4: Trade Health for an Item Play costs 30 Health and grants an extra Item play", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["devil-l4", { slug: "devil-sprite", level: 4 }]]);
+    let state = createGameState({
+      matchId: "devil-l4",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 2,
+      players: [
+        { userId: "u1", spriteInstanceId: "devil-l4", cardIds: [ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = playItem(state, 0, state.players[0].hand[0].instanceId, cards, undefined, spritesById);
+    expect(() => playItem(state, 0, state.players[0].hand[0].instanceId, cards, undefined, spritesById)).toThrow(
+      IllegalActionError,
+    );
+    const healthBefore = state.players[0].health;
+    state = activateSpriteAbility(state, 0, "devil-health-item", cards, spritesById);
+    expect(state.players[0].health).toBe(healthBefore - 30);
+    expect(state.players[0].extraPlaysThisTurn).toBe(1);
+    expect(() => playItem(state, 0, state.players[0].hand[0].instanceId, cards, undefined, spritesById)).not.toThrow();
+  });
+
+  it("Devil Sprite L5: the first Health loss each turn gives the controller's own Items +40 Attack for that turn, reset at their next turn", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_STRONG.id, ITEM_STRONG]]);
+    const spritesById = new Map<string, SpriteEngineData>([["devil-l5", { slug: "devil-sprite", level: 5 }]]);
+    let state = createGameState({
+      matchId: "devil-l5",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "devil-l5", cardIds: [ITEM_STRONG.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, ITEM_STRONG.id, "atk-1");
+    // Self-inflicted Health loss via Devil's own L3 ability (unlocked at L5).
+    state = activateSpriteAbility(state, 0, "devil-health-draw", cards, spritesById);
+    expect(state.players[0].spriteRuntime.turnAttackBonus).toBe(40);
+
+    const healthBefore = state.players[1].health;
+    state = declareAttack(state, 0, "atk-1", cards, spritesById); // unopposed
+    // Base 50 Attack + Devil's own passive Attack topic (+20 at L2+, still
+    // applies at L5) + the L5 turn bonus (+40) = 110.
+    expect(state.players[1].health).toBe(healthBefore - (ITEM_STRONG.attack! + 20 + 40));
+
+    state = endTurn(state, cards, spritesById);
+    expect(state.players[0].spriteRuntime.turnAttackBonus).toBe(0);
+  });
+
+  it("Cosmic Sprite: Relegate moves the top N deck cards to discard and draws N (N=1 at L1), once per turn", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_WEAK.id, ITEM_WEAK], [SPELL_A.id, SPELL_A]]);
+    const spritesById = new Map<string, SpriteEngineData>([["cosmic-l1", { slug: "cosmic-sprite", level: 1 }]]);
+    let state = createGameState({
+      matchId: "cosmic-l1",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "cosmic-l1", cardIds: [ITEM_WEAK.id, SPELL_A.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const deckBefore = state.players[0].deck.length;
+    state = activateSpriteAbility(state, 0, "cosmic-relegate", cards, spritesById);
+    expect(state.players[0].discard.length).toBe(1);
+    expect(state.players[0].hand.length).toBe(1);
+    expect(state.players[0].deck.length).toBe(deckBefore - 2); // -1 relegated, -1 drawn
+    expect(() => activateSpriteAbility(state, 0, "cosmic-relegate", cards, spritesById)).toThrow(IllegalActionError);
+  });
+
+  it("Cosmic Sprite L2 relegates/draws 2 instead of 1", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["cosmic-l2", { slug: "cosmic-sprite", level: 2 }]]);
+    let state = createGameState({
+      matchId: "cosmic-l2",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "cosmic-l2", cardIds: [ITEM_WEAK.id, ITEM_WEAK.id, ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = activateSpriteAbility(state, 0, "cosmic-relegate", cards, spritesById);
+    expect(state.players[0].discard.length).toBe(2);
+    expect(state.players[0].hand.length).toBe(2);
+  });
+
+  it("Cosmic Sprite L3: the first Relegated card each turn is playable from discard, even a Spell (unlike Art, not type-restricted)", () => {
+    const cards = new Map<string, EngineCard>([[SPELL_A.id, SPELL_A], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["cosmic-l3", { slug: "cosmic-sprite", level: 3 }]]);
+    let state = createGameState({
+      matchId: "cosmic-l3",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "cosmic-l3", cardIds: [] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putInDeck(state, 0, SPELL_A.id, "top-spell-1"); // top of deck
+    state = putInDeck(state, 0, ITEM_WEAK.id, "second-item-1");
+    state = activateSpriteAbility(state, 0, "cosmic-relegate", cards, spritesById);
+    expect(state.players[0].discard.some((c) => c.instanceId === "top-spell-1")).toBe(true);
+    expect(state.players[0].spriteRuntime.relegatedPlayableIds).toEqual(["top-spell-1"]);
+    expect(
+      getLegalActions(state, 0, cards, spritesById).some(
+        (a) => a.type === "PLAY_SPELL" && a.instanceId === "top-spell-1",
+      ),
+    ).toBe(true);
+    state = playSpell(state, 0, "top-spell-1", cards, undefined, spritesById);
+    expect(state.players[0].spriteRuntime.relegatedPlayableIds).not.toContain("top-spell-1");
+  });
+
+  it("Cosmic Sprite L4: both cards Relegated in one activation become playable this turn (not just the first)", () => {
+    const cards = new Map<string, EngineCard>([[SPELL_A.id, SPELL_A], [ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["cosmic-l4", { slug: "cosmic-sprite", level: 4 }]]);
+    let state = createGameState({
+      matchId: "cosmic-l4",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "cosmic-l4", cardIds: [] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putInDeck(state, 0, SPELL_A.id, "top-spell-2");
+    state = putInDeck(state, 0, ITEM_WEAK.id, "second-item-2");
+    state = activateSpriteAbility(state, 0, "cosmic-relegate", cards, spritesById);
+    expect([...state.players[0].spriteRuntime.relegatedPlayableIds].sort()).toEqual(
+      ["second-item-2", "top-spell-2"].sort(),
+    );
+  });
+
+  it("Cosmic Sprite L5 raises the per-turn Item limit, like Biologist does", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_WEAK.id, ITEM_WEAK]]);
+    const spritesById = new Map<string, SpriteEngineData>([["cosmic-l5", { slug: "cosmic-sprite", level: 5 }]]);
+    let state = createGameState({
+      matchId: "cosmic-l5",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 2,
+      players: [
+        { userId: "u1", spriteInstanceId: "cosmic-l5", cardIds: [ITEM_WEAK.id, ITEM_WEAK.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    const [firstItem, secondItem] = state.players[0].hand;
+    state = playItem(state, 0, firstItem.instanceId, cards, undefined, spritesById);
+    expect(() => playItem(state, 0, secondItem.instanceId, cards, undefined, spritesById)).not.toThrow();
+  });
+
+  it("Water Sprite L4 lets the controller play a Spell during their opponent's turn (and only then)", () => {
+    const cards = new Map<string, EngineCard>([[SPELL_A.id, SPELL_A]]);
+    const spritesById = new Map<string, SpriteEngineData>([["water-l4", { slug: "water-sprite", level: 4 }]]);
+    let state = createGameState({
+      matchId: "water-l4",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: "water-l4", cardIds: [SPELL_A.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = endTurn(state, cards, spritesById);
+    expect(state.activePlayerIndex).toBe(1);
+    const spellInHand = state.players[0].hand.find((c) => c.cardId === SPELL_A.id)!;
+    expect(
+      getLegalActions(state, 0, cards, spritesById).some(
+        (a) => a.type === "PLAY_SPELL" && a.instanceId === spellInHand.instanceId,
+      ),
+    ).toBe(true);
+    expect(() => playSpell(state, 0, spellInHand.instanceId, cards, undefined, spritesById)).not.toThrow();
+  });
+
+  it("Without Water Sprite L4, a player cannot play a Spell outside their own turn", () => {
+    const cards = new Map<string, EngineCard>([[SPELL_A.id, SPELL_A]]);
+    let state = createGameState({
+      matchId: "no-water-l4",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 1,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [SPELL_A.id] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = endTurn(state, cards);
+    const spellInHand = state.players[0].hand.find((c) => c.cardId === SPELL_A.id)!;
+    expect(getLegalActions(state, 0, cards).length).toBe(0);
+    expect(() => playSpell(state, 0, spellInHand.instanceId, cards)).toThrow(IllegalActionError);
+  });
+
+  it("Angel Sprite L5 sets Health to 100 the FIRST time a player would lose the game (once per game)", () => {
+    const BIG_HIT: EngineCard = { id: "big-hit-angel", slug: "big-hit-angel", type: "Item", attack: 150, defence: 0, speed: 0 };
+    const cards = new Map<string, EngineCard>([[BIG_HIT.id, BIG_HIT]]);
+    const spritesById = new Map<string, SpriteEngineData>([["angel-l5", { slug: "angel-sprite", level: 5 }]]);
+    let state = createGameState({
+      matchId: "angel-l5",
+      formatId: "f1",
+      startingHealth: 50,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "angel-l5", cardIds: [] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [BIG_HIT.id, BIG_HIT.id] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 1, BIG_HIT.id, "hit-1");
+    state = putOnBattlefield(state, 1, BIG_HIT.id, "hit-2");
+    state = endTurn(state, cards, spritesById); // player 1's turn, so THEY can declare the attack
+    state = declareAttack(state, 1, "hit-1", cards, spritesById); // lethal (150 >= 50) — revived instead
+    expect(state.phase).toBe("MAIN");
+    expect(state.players[0].health).toBe(100);
+    expect(state.players[0].spriteRuntime.usedEver).toContain("angel-revive");
+
+    // Same turn, a SECOND lethal hit ends the match for real — already used.
+    state = declareAttack(state, 1, "hit-2", cards, spritesById);
+    expect(state.phase).toBe("COMPLETE");
+    expect(state.winnerIndex).toBe(1);
+  });
+
+  it("activateSpriteAbility rejects an ability the equipped Sprite hasn't unlocked by level", () => {
+    const cards = new Map<string, EngineCard>();
+    const spritesById = new Map<string, SpriteEngineData>([["angel-low", { slug: "angel-sprite", level: 1 }]]);
+    let state = createGameState({
+      matchId: "gate-level",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "angel-low", cardIds: [] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    expect(() => activateSpriteAbility(state, 0, "angel-shield", cards, spritesById)).toThrow(IllegalActionError);
+    expect(getLegalActions(state, 0, cards, spritesById).some((a) => a.type === "ACTIVATE_SPRITE_ABILITY")).toBe(
+      false,
+    );
+  });
+
+  it("activateSpriteAbility rejects activation with no Sprite equipped at all", () => {
+    const cards = new Map<string, EngineCard>();
+    let state = createGameState({
+      matchId: "gate-no-sprite",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    expect(() => activateSpriteAbility(state, 0, "angel-shield", cards, new Map())).toThrow(IllegalActionError);
+  });
+
+  it("getUnlockedActivatedAbilities returns only abilities unlocked at the given level", () => {
+    expect(getUnlockedActivatedAbilities("devil-sprite", 3).map((a) => a.id)).toEqual(["devil-health-draw"]);
+    expect(
+      getUnlockedActivatedAbilities("devil-sprite", 4)
+        .map((a) => a.id)
+        .sort(),
+    ).toEqual(["devil-health-draw", "devil-health-item"].sort());
+  });
+
+  it("ensureSpriteRuntime backfills spriteRuntime on state persisted before this field existed, without touching state that already has it", () => {
+    const cards = new Map<string, EngineCard>();
+    let state = createGameState({
+      matchId: "backfill",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: null, cardIds: [] },
+        { userId: "u2", spriteInstanceId: null, cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    // Simulate an old persisted row from before spriteRuntime existed —
+    // JSON.parse(JSON.stringify(...)) would drop nothing since it's a
+    // plain object, so delete the field directly to simulate the old shape.
+    const stale = {
+      ...state,
+      players: [
+        { ...state.players[0], spriteRuntime: undefined } as unknown as DigitalGameState["players"][0],
+        state.players[1],
+      ] as [DigitalGameState["players"][0], DigitalGameState["players"][1]],
+    };
+    const fixed = ensureSpriteRuntime(stale);
+    expect(fixed.players[0].spriteRuntime).toEqual({
+      usedThisTurn: [],
+      usedEver: [],
+      firstThisTurnFired: [],
+      damageShield: 0,
+      turnAttackBonus: 0,
+      relegatedPlayableIds: [],
+    });
+    expect(fixed.players[1].spriteRuntime).toBe(state.players[1].spriteRuntime); // untouched, already present
+    expect(ensureSpriteRuntime(state)).toBe(state); // already-complete state is returned as-is
+  });
+
+  // ---- Full-match smoke test: both sides equipped, several kinds of
+  // ability (passive, triggered, activated) resolving across a short
+  // multi-turn sequence, per the feature's final acceptance check. ----
+  it("a full match with Sprites equipped on both sides resolves passive, triggered, and activated abilities correctly", () => {
+    const cards = new Map<string, EngineCard>([[ITEM_STRONG.id, ITEM_STRONG], [ITEM_WEAK.id, ITEM_WEAK]]);
+    // Player 0: Fire Sprite L2 (PASSIVE damageDealt +20).
+    // Player 1: Angel Sprite L4 (ACTIVATED Guardian Shield) + L1 (PASSIVE healthGained, unused here).
+    const spritesById = new Map<string, SpriteEngineData>([
+      ["fire-full", { slug: "fire-sprite", level: 2 }],
+      ["angel-full", { slug: "angel-sprite", level: 4 }],
+    ]);
+    let state = createGameState({
+      matchId: "full-match-sprites",
+      formatId: "f1",
+      startingHealth: 500,
+      startingHand: 0,
+      players: [
+        { userId: "u1", spriteInstanceId: "fire-full", cardIds: [ITEM_STRONG.id] },
+        { userId: "u2", spriteInstanceId: "angel-full", cardIds: [] },
+      ],
+      cardsById: cards,
+      random: () => 0,
+    });
+    state = putOnBattlefield(state, 0, ITEM_STRONG.id, "atk-1");
+
+    // Player 1 activates their Guardian Shield (ACTIVATED) on their own
+    // turn, before the hit — then play returns to player 0 to attack.
+    state = endTurn(state, cards, spritesById);
+    state = activateSpriteAbility(state, 1, "angel-shield", cards, spritesById);
+    expect(state.players[1].spriteRuntime.damageShield).toBe(30);
+    state = endTurn(state, cards, spritesById);
+
+    const healthBefore = state.players[1].health;
+    // Fire Sprite's PASSIVE damageDealt bonus (+20) applies; opponent's
+    // empty battlefield makes this unopposed.
+    state = declareAttack(state, 0, "atk-1", cards, spritesById);
+    // 50 (attack) + 20 (Fire L2 passive) = 70 raw damage; Guardian Shield
+    // (ACTIVATED) soaks 30 of it -> 40 actually taken.
+    expect(state.players[1].health).toBe(healthBefore - 40);
+    expect(state.players[1].spriteRuntime.damageShield).toBe(0);
+    expect(state.phase).toBe("MAIN");
   });
 });
 

@@ -11,6 +11,7 @@ import {
   concedeDigitalMatchAction,
   activateTimeBombAction,
   activateStarDropAction,
+  activateSpriteAbilityAction,
   getSearchableDeckItemsAction,
   type SearchableDeckCard,
 } from "@/lib/actions/digital-match-actions";
@@ -18,6 +19,7 @@ import type { VisibleGameState } from "@/lib/digital-engine/engine";
 import type { LegalAction } from "@/lib/digital-engine/engine";
 import { getTargetCandidateIds } from "@/lib/digital-engine/engine";
 import { getRequiredTarget, getAttackTriggerTarget, type TargetRequirement } from "@/lib/digital-engine/abilities";
+import { getUnlockedActivatedAbilities, type SpriteActivatedAbility } from "@/lib/digital-engine/sprite-abilities";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { BotTurnDriver } from "./bot-turn-driver";
 
@@ -37,9 +39,14 @@ type SpriteDisplay = {
   id: string;
   name: string;
   level: number;
+  slug: string;
   spriteName: string;
   image: string | null;
   rarity: string | null;
+  /** Real level1Ability..level5Ability text, index 0 = Level 1 — shown
+   *  verbatim in the ability menu rather than duplicated in the engine
+   *  layer (sprite-abilities.ts only carries mechanical shape). */
+  abilityTextByLevel: (string | null)[];
 };
 
 type PlayFormAction = (formData: FormData) => void | Promise<void>;
@@ -111,32 +118,187 @@ function CardBack({ large }: { large?: boolean }) {
   );
 }
 
-function SpriteBadge({ sprite, large }: { sprite: SpriteDisplay | undefined; large?: boolean }) {
+// Five small pips showing the Sprite's level-unlock progress at a glance —
+// filled violet for every unlocked level below the current one, amber for
+// the current level, grey for locked levels still ahead. Works identically
+// for any sprite/level combination (1-5, per the Rules page's "Level 5 is
+// the maximum" — there is no Level 6).
+function SpriteLevelPips({ level }: { level: number }) {
+  return (
+    <div className="flex justify-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((lvl) => (
+        <span
+          key={lvl}
+          className={`h-1.5 w-1.5 rounded-full ${
+            lvl === level ? "bg-amber-500" : lvl < level ? "bg-violet-400" : "bg-slate-200"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+// A small, compact "Sprite card" display for each side of the battlefield
+// — card-style artwork, name, level, and (via the title tooltip and pips)
+// which abilities are unlocked. Clickable ONLY for the viewer's own
+// Sprite, and only once it actually has an activated ability usable right
+// now (see Battlefield's `spriteMenuUsable`) — opens the ability menu.
+function SpriteBadge({
+  sprite,
+  large,
+  clickable,
+  onClick,
+  pulsing,
+}: {
+  sprite: SpriteDisplay | undefined;
+  large?: boolean;
+  clickable?: boolean;
+  onClick?: () => void;
+  pulsing?: boolean;
+}) {
+  const size = large ? "w-20" : "w-16";
   if (!sprite) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white/60 px-3 py-2 text-xs text-slate-400">
-        No Sprite equipped
+      <div
+        className={`flex flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-slate-300 bg-white/60 p-2 text-center text-[10px] leading-tight text-slate-400 ${size} aspect-[5/7]`}
+      >
+        <span>No Sprite</span>
+        <span>Equipped</span>
       </div>
     );
   }
+  const unlockedNames = sprite.abilityTextByLevel
+    .map((text, i) => (text && i + 1 <= sprite.level ? `L${i + 1}: ${text}` : null))
+    .filter((t): t is string => t !== null)
+    .join("\n");
+  const Wrapper = clickable ? "button" : "div";
   return (
-    <div
-      className="flex items-center gap-2 rounded-lg border border-violet-300 bg-white px-3 py-2 shadow"
-      title={`${sprite.spriteName}${sprite.rarity ? ` (${sprite.rarity})` : ""} — Level ${sprite.level}`}
+    <Wrapper
+      type={clickable ? "button" : undefined}
+      onClick={clickable ? onClick : undefined}
+      title={`${sprite.spriteName}${sprite.rarity ? ` (${sprite.rarity})` : ""} — Level ${sprite.level}${
+        unlockedNames ? `\n\nUnlocked abilities:\n${unlockedNames}` : ""
+      }`}
+      className={`flex flex-col items-center gap-1 rounded-lg border-2 bg-white p-1.5 text-center shadow transition ${size} ${
+        clickable ? "cursor-pointer border-violet-400 hover:scale-105 hover:shadow-lg" : "border-violet-200"
+      } ${pulsing ? "animate-pulse ring-4 ring-emerald-300" : ""}`}
     >
-      <div className={`overflow-hidden rounded-full border border-violet-200 bg-violet-50 ${large ? "h-12 w-12" : "h-9 w-9"}`}>
+      <div className="aspect-square w-full overflow-hidden rounded border border-violet-100 bg-violet-50">
         {sprite.image ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={sprite.image} alt={sprite.spriteName} className="h-full w-full object-cover" />
         ) : (
-          <span className="flex h-full items-center justify-center text-xs font-bold text-violet-400">S</span>
+          <span className="flex h-full items-center justify-center text-lg font-bold text-violet-300">S</span>
         )}
       </div>
-      <div>
-        <p className={`font-bold leading-tight ${large ? "text-sm" : "text-xs"}`}>{sprite.name}</p>
-        <p className="text-[11px] leading-tight text-slate-500">
-          {sprite.spriteName} · Lv {sprite.level}
-        </p>
+      <p className={`w-full truncate font-bold leading-tight ${large ? "text-xs" : "text-[10px]"}`}>{sprite.name}</p>
+      <p className="text-[9px] leading-tight text-slate-500">Lv {sprite.level}</p>
+      <SpriteLevelPips level={sprite.level} />
+      {clickable && <span className="text-[9px] font-bold text-violet-600">Tap for abilities</span>}
+    </Wrapper>
+  );
+}
+
+// The activation menu — every ACTIVATED ability the equipped Sprite has
+// unlocked by level (getUnlockedActivatedAbilities), each shown with its
+// real rules text (from the DB, via `sprite.abilityTextByLevel`), cost,
+// and whether it's usable RIGHT NOW (cross-checked against `legalActions`,
+// the same server-computed list that gates every other action in this
+// UI — never re-derived/guessed client-side). Unusable ones are greyed
+// out with a concrete reason; clicking one never submits anything.
+function SpriteAbilityModal({
+  matchId,
+  sprite,
+  you,
+  legalActions,
+  onClose,
+  onNeedsTarget,
+}: {
+  matchId: string;
+  sprite: SpriteDisplay;
+  you: VisibleGameState["players"][number];
+  legalActions: LegalAction[];
+  onClose: () => void;
+  onNeedsTarget: (abilityId: string) => void;
+}) {
+  const router = useRouter();
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const defs = getUnlockedActivatedAbilities(sprite.slug, sprite.level);
+  const usableIds = new Set(
+    legalActions
+      .filter((a): a is Extract<LegalAction, { type: "ACTIVATE_SPRITE_ABILITY" }> => a.type === "ACTIVATE_SPRITE_ABILITY")
+      .map((a) => a.abilityId),
+  );
+
+  function reasonUnusable(def: SpriteActivatedAbility): string {
+    if (def.oncePerTurn && you.spriteRuntime.usedThisTurn.includes(def.id)) return "Already used this turn.";
+    if (def.needsTarget) return "Only usable while your own attack is awaiting a defender.";
+    if (def.id === "cosmic-relegate" && you.deckCount === 0) return "Your deck is empty — nothing to Relegate.";
+    return "Not usable right now.";
+  }
+
+  async function activate(def: SpriteActivatedAbility) {
+    if (def.needsTarget) {
+      onClose();
+      onNeedsTarget(def.id);
+      return;
+    }
+    setSubmittingId(def.id);
+    const formData = new FormData();
+    formData.set("matchId", matchId);
+    formData.set("abilityId", def.id);
+    await activateSpriteAbilityAction(formData);
+    onClose();
+    router.refresh();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-2xl border-4 border-white bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">{sprite.spriteName} Abilities</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full px-2 py-1 text-sm font-bold text-slate-500 hover:bg-slate-100"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="mt-4 flex flex-col gap-2">
+          {defs.map((def) => {
+            const usable = usableIds.has(def.id) && submittingId === null;
+            const text = sprite.abilityTextByLevel[def.level - 1];
+            return (
+              <button
+                key={def.id}
+                type="button"
+                disabled={!usable}
+                onClick={() => activate(def)}
+                className={`rounded-lg border-2 p-3 text-left transition ${
+                  usable
+                    ? "border-violet-300 bg-violet-50 hover:bg-violet-100"
+                    : "border-slate-200 bg-slate-50 opacity-60"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold">{def.name}</span>
+                  <span className="shrink-0 text-[10px] font-semibold text-slate-500">Level {def.level}+</span>
+                </div>
+                {text && <p className="mt-1 text-[11px] text-slate-600">{text}</p>}
+                {def.costHealth !== undefined && (
+                  <p className="mt-1 text-[11px] font-semibold text-red-600">Cost: {def.costHealth} Health</p>
+                )}
+                {!usable && <p className="mt-1 text-[11px] italic text-slate-500">{reasonUnusable(def)}</p>}
+                {usable && submittingId === def.id && <p className="mt-1 text-[11px] text-violet-600">Activating…</p>}
+              </button>
+            );
+          })}
+          {defs.length === 0 && <p className="text-sm text-slate-400">No activated abilities unlocked yet.</p>}
+        </div>
       </div>
     </div>
   );
@@ -457,6 +619,8 @@ export function Battlefield({
     requirement: Extract<TargetRequirement, { kind: "DISCARD_CARD" }>;
   } | null>(null);
   const [openDiscard, setOpenDiscard] = useState<0 | 1 | null>(null);
+  const [spriteMenuOpen, setSpriteMenuOpen] = useState(false);
+  const [sneakAttackAbilityId, setSneakAttackAbilityId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -508,6 +672,30 @@ export function Battlefield({
   );
   const canChooseNoDefender = legalActions.some((a) => a.type === "NO_DEFENDER");
   const canEndTurn = legalActions.some((a) => a.type === "END_TURN");
+
+  const yourSprite = you.spriteInstanceId ? spritesById[you.spriteInstanceId] : undefined;
+  const spriteMenuClickable = legalActions.some((a) => a.type === "ACTIVATE_SPRITE_ABILITY");
+  // Ninja Sprite Sneak Attack: every untired Item on your own battlefield
+  // except the current attacker — the SAME set getSneakAttackCandidateIds
+  // (engine.ts) computes server-side, re-derived here from already-visible
+  // data so the UI can highlight it without another round trip.
+  const sneakAttackCandidateIds = new Set(
+    pending && youAreAttacking
+      ? you.battlefield.filter((c) => !c.tired && c.instanceId !== pending.attackerInstanceId).map((c) => c.instanceId)
+      : [],
+  );
+
+  async function submitSneakAttackTarget(targetInstanceId: string) {
+    if (!sneakAttackAbilityId) return;
+    const abilityId = sneakAttackAbilityId;
+    setSneakAttackAbilityId(null);
+    const formData = new FormData();
+    formData.set("matchId", matchId);
+    formData.set("abilityId", abilityId);
+    formData.set("targetId", targetInstanceId);
+    await activateSpriteAbilityAction(formData);
+    router.refresh();
+  }
 
   // Cards' own real DB ids get embedded in log lines written server-side
   // (see engine.ts) instead of names, since the engine never carries
@@ -632,7 +820,12 @@ export function Battlefield({
     const sprite = player.spriteInstanceId ? spritesById[player.spriteInstanceId] : undefined;
     return (
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <SpriteBadge sprite={sprite} large={isFullscreen} />
+        <SpriteBadge
+          sprite={sprite}
+          large={isFullscreen}
+          clickable={isYou && spriteMenuClickable}
+          onClick={isYou ? () => setSpriteMenuOpen(true) : undefined}
+        />
         <ZonePile label="Deck" count={player.deckCount} variant="deck" />
         <ZonePile
           label="Discard"
@@ -699,9 +892,31 @@ export function Battlefield({
           </div>
         )}
 
+        {sneakAttackAbilityId && (
+          <div className="mt-4 flex items-center justify-between rounded border-2 border-violet-400 bg-violet-50 px-4 py-3 text-sm font-semibold text-violet-800">
+            <span>🥷 Sneak Attack — click an untired Item to swap in as the attacker.</span>
+            <button
+              type="button"
+              onClick={() => setSneakAttackAbilityId(null)}
+              className="rounded border border-violet-400 bg-white px-3 py-1 text-xs font-bold text-violet-700 hover:bg-violet-100"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         {pending && youAreAttacking && (
           <div className="mt-4 animate-pulse rounded border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm font-bold text-amber-800">
             WAITING FOR OPPONENT TO DEFEND — {attackerName} is attacking.
+            {spriteMenuClickable && sneakAttackAbilityId === null && (
+              <button
+                type="button"
+                onClick={() => setSpriteMenuOpen(true)}
+                className="ml-3 rounded-full bg-violet-600 px-3 py-1 text-xs font-bold text-white hover:bg-violet-700"
+              >
+                🥷 Sneak Attack
+              </button>
+            )}
           </div>
         )}
         {pending && youAreDefending && (
@@ -798,8 +1013,16 @@ export function Battlefield({
                   onEnlarge={setEnlarged}
                   large={isFullscreen}
                   tired={c.tired}
-                  selectable={pendingCandidates?.itemInstanceIds.has(c.instanceId)}
-                  onSelect={() => submitTarget(`item:${c.instanceId}`)}
+                  selectable={
+                    sneakAttackAbilityId !== null
+                      ? sneakAttackCandidateIds.has(c.instanceId)
+                      : pendingCandidates?.itemInstanceIds.has(c.instanceId)
+                  }
+                  onSelect={
+                    sneakAttackAbilityId !== null
+                      ? () => submitSneakAttackTarget(c.instanceId)
+                      : () => submitTarget(`item:${c.instanceId}`)
+                  }
                 />
                 {attackableInstanceIds.has(c.instanceId) &&
                   (getAttackTriggerTarget(cardsById[c.cardId]?.slug ?? "")?.kind === "DECK_ITEM" ? (
@@ -981,6 +1204,17 @@ export function Battlefield({
           discard={you.discard}
           cardsById={cardsById}
           onClose={() => setDiscardPick(null)}
+        />
+      )}
+
+      {spriteMenuOpen && yourSprite && (
+        <SpriteAbilityModal
+          matchId={matchId}
+          sprite={yourSprite}
+          you={you}
+          legalActions={legalActions}
+          onClose={() => setSpriteMenuOpen(false)}
+          onNeedsTarget={(abilityId) => setSneakAttackAbilityId(abilityId)}
         />
       )}
 

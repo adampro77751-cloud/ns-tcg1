@@ -7,8 +7,9 @@ import {
   getOwnedSpriteOptions,
   getCardDisplayMap,
   getSpriteDisplayMap,
+  getSpritesByIdMap,
 } from "@/lib/digital-play";
-import { getVisibleState, getLegalActions } from "@/lib/digital-engine/engine";
+import { getVisibleState, getLegalActions, ensureSpriteRuntime } from "@/lib/digital-engine/engine";
 import type { DigitalGameState } from "@/lib/digital-engine/types";
 import {
   joinOnlineMatchAction,
@@ -143,7 +144,7 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
 
   // --- IN_PROGRESS ---
   if (!isParticipant || !match.state) notFound();
-  const state = match.state as unknown as DigitalGameState;
+  const state = ensureSpriteRuntime(match.state as unknown as DigitalGameState);
   const playerIndex = viewerPlayerIndex as 0 | 1;
   const visible = getVisibleState(state, playerIndex);
 
@@ -162,7 +163,11 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
       { id: c.id, slug: c.slug, type: c.type, attack: c.attack, defence: c.defence, speed: c.speed },
     ]),
   );
-  const legalActions = getLegalActions(state, playerIndex, engineCardsById);
+  const engineSpritesById = await getSpritesByIdMap([
+    visible.players[0].spriteInstanceId,
+    visible.players[1].spriteInstanceId,
+  ]);
+  const legalActions = getLegalActions(state, playerIndex, engineCardsById, engineSpritesById);
 
   const opponentUsername =
     match.players.find((p) => p.userId !== session.user.id)?.user?.username ??
