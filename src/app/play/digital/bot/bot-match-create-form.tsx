@@ -80,11 +80,13 @@ function DeckAndSpritePicker({
 export function BotMatchCreateForm({
   formatId,
   decks,
+  botDecks,
   spriteOptions,
   action,
 }: {
   formatId: string;
   decks: DeckWithLegality[];
+  botDecks: DeckWithLegality[];
   spriteOptions: SpriteOption[];
   action: (state: DigitalFormState, formData: FormData) => Promise<DigitalFormState>;
 }) {
@@ -94,6 +96,7 @@ export function BotMatchCreateForm({
   return (
     <form action={formAction} className="mt-6 flex flex-col gap-4">
       <input type="hidden" name="formatId" value={formatId} />
+      <p className="text-sm text-slate-500">You must own every card in your deck, including enough copies of each card. The Bot can use any legal saved deck.</p>
 
       <DeckAndSpritePicker
         legend="Your deck"
@@ -106,7 +109,7 @@ export function BotMatchCreateForm({
         legend="Bot deck"
         deckFieldName="botDeckId"
         spriteFieldName="botSpriteInstanceId"
-        decks={decks}
+        decks={botDecks}
         spriteOptions={spriteOptions}
       />
 

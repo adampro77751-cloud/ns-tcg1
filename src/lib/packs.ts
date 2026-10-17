@@ -93,6 +93,15 @@ export async function generatePackCards(setName: string): Promise<GeneratedPackC
     throw new Error(`No cards found in set "${setName}".`);
   }
 
+  return generatePackFromPool(cardsInSet);
+}
+
+// Also used by Draft to generate the whole pod from one database read.
+export function generatePackFromPool(cardsInSet: {
+  id: string; name: string; rarity: string | null; image: string | null; type: string | null;
+}[]): GeneratedPackCard[] {
+  if (!cardsInSet.length) throw new Error("No cards available for this pack.");
+
   const byRarity = new Map<CanonicalRarity, typeof cardsInSet>();
   for (const card of cardsInSet) {
     const rarity = normalizeRarity(card.rarity);

@@ -36,6 +36,7 @@ export function DigitalCreateForm({
       ))}
 
       <div>
+        <p className="mb-3 text-sm text-slate-500">You must own every card in your deck, including enough copies of each card.</p>
         <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Your deck
         </h2>

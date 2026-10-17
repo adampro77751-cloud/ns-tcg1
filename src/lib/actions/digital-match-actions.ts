@@ -6,6 +6,8 @@ import { requireAdminAction } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { requireOwnedLegalDeck } from "@/lib/decks";
+import { getDeckCollectionErrors } from "@/lib/deck-collection";
+import { advanceDraftAfterMatch } from "@/lib/draft";
 import { resolveOwnedSpriteInstance } from "@/lib/sprite-ownership";
 import { generateJoinCode, normalizeJoinCode } from "@/lib/join-code";
 import {
@@ -128,7 +130,7 @@ export async function createBotMatchAction(
             ready: true,
           },
         });
-        await snapshotDigitalDeck(tx, human.id, deck.id);
+        await snapshotDigitalDeck(tx, human.id, deck.id, session.user.id);
         // The bot gets its OWN independently-chosen deck snapshot — never
         // the human's cards/hand.
         await snapshotDigitalDeck(tx, bot.id, botDeck.id);
@@ -212,18 +214,23 @@ export async function createOnlineMatchAction(
   });
   if (!format?.isActive) return { error: "That format isn't available." };
 
-  const matchId = await createMatchWithJoinCode(async (joinCode) =>
-    prisma.$transaction(async (tx) => {
-      const match = await tx.digitalMatch.create({
-        data: { joinCode, formatId, mode: "ONLINE", status: "WAITING" },
-      });
-      const player = await tx.digitalMatchPlayer.create({
-        data: { matchId: match.id, userId: session.user.id, deckId: deck.id, spriteInstanceId },
-      });
-      await snapshotDigitalDeck(tx, player.id, deck.id);
-      return match.id;
-    }),
-  );
+  let matchId: string;
+  try {
+    matchId = await createMatchWithJoinCode(async (joinCode) =>
+      prisma.$transaction(async (tx) => {
+        const match = await tx.digitalMatch.create({
+          data: { joinCode, formatId, mode: "ONLINE", status: "WAITING" },
+        });
+        const player = await tx.digitalMatchPlayer.create({
+          data: { matchId: match.id, userId: session.user.id, deckId: deck.id, spriteInstanceId },
+        });
+        await snapshotDigitalDeck(tx, player.id, deck.id, session.user.id);
+        return match.id;
+      }),
+    );
+  } catch (err) {
+    return { error: (err as Error).message || "Couldn't create this match." };
+  }
 
   redirect(`/play/digital/${matchId}`);
 }
@@ -284,7 +291,7 @@ export async function joinOnlineMatchAction(
       const player = await tx.digitalMatchPlayer.create({
         data: { matchId, userId: session.user.id, deckId: deck.id, spriteInstanceId },
       });
-      await snapshotDigitalDeck(tx, player.id, deck.id);
+      await snapshotDigitalDeck(tx, player.id, deck.id, session.user.id);
     });
   } catch (err) {
     return { error: (err as Error).message ?? "Couldn't join this match." };
@@ -323,13 +330,19 @@ async function maybeStartMatch(matchId: string) {
             userId: true,
             spriteInstanceId: true,
             ready: true,
-            deckSnapshot: { select: { cardId: true, quantity: true } },
+            deckSnapshot: { select: { cardId: true, quantity: true, card: { select: { name: true } } } },
           },
         },
       },
     });
     if (!match || match.status !== "READY") return;
     if (match.players.length !== 2 || !match.players.every((p) => p.ready)) return;
+
+    for (const player of match.players) {
+      if (!player.userId) continue;
+      const errors = await getDeckCollectionErrors(tx, player.userId, player.deckSnapshot);
+      if (errors.length) throw new Error(errors.join(" "));
+    }
 
     const allCardIds = [
       ...expandSnapshotToCardIds(match.players[0].deckSnapshot),
@@ -441,6 +454,7 @@ async function persistState(matchId: string, state: DigitalGameState, mode: stri
   if (isComplete && winnerUserId) {
     await awardDigitalMatchWinCoins(matchId, winnerUserId, mode === "BOT" ? "BOT" : "ONLINE");
   }
+  if (isComplete) await advanceDraftAfterMatch(matchId);
 }
 
 function allCardIdsIn(state: DigitalGameState): string[] {

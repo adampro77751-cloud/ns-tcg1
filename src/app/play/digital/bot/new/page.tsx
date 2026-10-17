@@ -75,6 +75,7 @@ export default async function NewBotMatchPage({
           <BotMatchCreateForm
             formatId={formatId}
             decks={decks}
+            botDecks={decks.map((deck) => ({ ...deck, legality: deck.formatLegality }))}
             spriteOptions={spriteOptions}
             action={createBotMatchAction}
           />

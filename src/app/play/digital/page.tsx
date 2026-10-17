@@ -44,6 +44,11 @@ export default async function DigitalPlayHomePage() {
       </p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-violet-50 p-6 sm:col-span-2">
+          <h2 className="text-lg font-bold">Bot Draft · 2,000 Coins</h2>
+          <p className="mt-1 text-sm text-slate-600">Join a pod of six. Draft with five bots, keep your picks, and play five automatically paired rounds.</p>
+          {isAdmin ? <Link href="/play/digital/draft" className="mt-4 inline-block rounded-full bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700">Draft & play</Link> : <LockedNotice />}
+        </div>
         <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-white to-sky-50 p-6">
           <h2 className="text-lg font-bold">Play Online</h2>
           <p className="mt-1 text-sm text-slate-600">

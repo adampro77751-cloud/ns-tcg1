@@ -73,6 +73,7 @@ model User {
   coinTransactions CoinTransaction[]
   ownedCards       UserCard[]
   packOpenings     PackOpening[]
+  draftPods        DraftPod[]
 }
 
 // Public-facing profile data, separate from auth/account data so it is safe
@@ -137,6 +138,7 @@ enum CoinTransactionType {
   MATCH_WIN
   PACK_PURCHASE
   ADMIN_GRANT
+  DRAFT_ENTRY
 }
 
 // Append-only ledger — the actual source of truth for a player's Coins,
@@ -164,8 +166,8 @@ model CoinTransaction {
 // can exceed any format's max-copies-per-card; this model deliberately
 // does not enforce or even know about deck legality limits (see the
 // project's task notes: duplicate conversion/protection is a later
-// decision). Card ownership is never checked by deck-building today —
-// this is purely a collection record for display and future gating.
+// decision). Deck building remains unrestricted; digital matches require
+// the player to own enough copies of every card in their deck.
 model UserCard {
   id        String   @id @default(cuid())
   userId    String
@@ -774,7 +776,39 @@ model DigitalMatch {
 
   players DigitalMatchPlayer[]
 
+  draftPodId        String?
+  draftPod          DraftPod? @relation(fields: [draftPodId], references: [id])
+  draftRound        Int?
+  draftOpponentSeat Int?
+
+  @@unique([draftPodId, draftRound])
+
   @@index([formatId])
+}
+
+enum DraftStatus {
+  DRAFTING
+  BUILDING
+  PLAYING
+  COMPLETED
+}
+
+// One human and five bots. Packs, picks, locked decks and pod results are
+// server-owned state; version prevents duplicate picks and round advances.
+model DraftPod {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id])
+  activeUserId String?     @unique
+  setName      String
+  status       DraftStatus @default(DRAFTING)
+  state        Json
+  version      Int         @default(0)
+  createdAt    DateTime    @default(now())
+  completedAt  DateTime?
+  matches      DigitalMatch[]
+
+  @@index([userId, createdAt])
 }
 
 model DigitalMatchPlayer {

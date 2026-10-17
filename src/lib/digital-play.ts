@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getDeckLegality } from "@/lib/decks";
+import { getDeckCollectionErrors } from "@/lib/deck-collection";
 import type { EngineCard } from "@/lib/digital-engine/types";
 import type { SpriteEngineData } from "@/lib/digital-engine/sprite-abilities";
 
@@ -18,10 +19,13 @@ export async function getDecksWithLegality(userId: string, formatId: string) {
   const decks = await prisma.deck.findMany({
     where: { userId, formatId },
     orderBy: { updatedAt: "desc" },
-    select: { id: true, name: true },
+    select: { id: true, name: true, cards: { select: { cardId: true, quantity: true, card: { select: { name: true } } } } },
   });
   const legality = await Promise.all(decks.map((d) => getDeckLegality(d.id)));
-  return decks.map((deck, i) => ({ ...deck, legality: legality[i] }));
+  return Promise.all(decks.map(async (deck, i) => {
+    const errors = [...legality[i].errors, ...await getDeckCollectionErrors(prisma, userId, deck.cards)];
+    return { id: deck.id, name: deck.name, formatLegality: legality[i], legality: { legal: errors.length === 0, errors } };
+  }));
 }
 
 export async function getOwnedSpriteOptions(userId: string) {
@@ -45,14 +49,19 @@ export async function getOwnedSpriteOptions(userId: string) {
 // digital-only DigitalMatchPlayerDeckCard table — never shared with the
 // physical match snapshot table, per beta-isolation requirement.
 export async function snapshotDigitalDeck(
-  tx: Pick<typeof prisma, "deckCard" | "digitalMatchPlayerDeckCard">,
+  tx: Pick<typeof prisma, "deckCard" | "digitalMatchPlayerDeckCard" | "userCard">,
   digitalMatchPlayerId: string,
   deckId: string,
+  userId?: string,
 ) {
   const deckCards = await tx.deckCard.findMany({
     where: { deckId },
-    select: { cardId: true, quantity: true },
+    select: { cardId: true, quantity: true, card: { select: { name: true } } },
   });
+  if (userId) {
+    const errors = await getDeckCollectionErrors(tx, userId, deckCards);
+    if (errors.length) throw new Error(errors.join(" "));
+  }
   if (deckCards.length === 0) return;
   await tx.digitalMatchPlayerDeckCard.createMany({
     data: deckCards.map((dc) => ({

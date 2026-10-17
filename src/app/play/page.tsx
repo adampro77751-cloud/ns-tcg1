@@ -70,6 +70,10 @@ export default async function PlayPage() {
     <div className="mx-auto w-full max-w-3xl px-4 py-12">
       <AutoRefresh intervalMs={10000} />
       <h1 className="text-2xl font-bold tracking-tight">Play</h1>
+      {session?.user?.role === "ADMIN" && <Link href="/play/digital/draft" className="mt-5 block rounded-xl border border-violet-200 bg-violet-50 px-5 py-4 hover:border-violet-400">
+        <span className="font-bold text-violet-800">Bot Draft · 2,000 Coins →</span>
+        <span className="mt-1 block text-sm text-slate-600">Draft in a pod of six, keep your picks, and play five automatic rounds.</span>
+      </Link>}
 
       {session?.user ? (
         <>

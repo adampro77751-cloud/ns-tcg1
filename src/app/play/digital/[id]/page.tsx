@@ -34,6 +34,8 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
       formatId: true,
       state: true,
       winnerId: true,
+      draftPodId: true,
+      draftOpponentSeat: true,
       format: { select: { name: true } },
       players: {
         orderBy: { joinedAt: "asc" },
@@ -135,7 +137,8 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
     return (
       <div className="mx-auto w-full max-w-md px-4 py-12 text-center">
         <h1 className="text-3xl font-extrabold tracking-tight">
-          {match.winnerId ? (iWon ? "Victory!" : "Defeat") : "Match ended"}
+          {match.winnerId ? (iWon ? "Victory!" : "Defeat")
+            : match.mode === "BOT" && (match.state as unknown as DigitalGameState | null)?.winnerIndex === 1 ? "Defeat" : "Match ended"}
         </h1>
         {coinsAwarded !== null && (
           <div className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-5 py-2.5 text-base font-extrabold text-amber-700 shadow">
@@ -145,6 +148,7 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
         <Link href="/play/digital" className="mt-6 inline-block text-blue-600">
           ← Digital Play
         </Link>
+        {match.draftPodId && <Link href={`/play/digital/draft/${match.draftPodId}`} className="mt-6 block rounded-full bg-violet-600 px-5 py-3 font-bold text-white">Return to draft · next round & standings</Link>}
       </div>
     );
   }
@@ -178,7 +182,7 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
 
   const opponentUsername =
     match.players.find((p) => p.userId !== session.user.id)?.user?.username ??
-    (match.players.find((p) => p.isBot) ? "Bot" : "Opponent");
+    (match.players.find((p) => p.isBot) ? (match.draftOpponentSeat ? `Bot ${match.draftOpponentSeat}` : "Bot") : "Opponent");
 
   const spritesById = await getSpriteDisplayMap([
     visible.players[0].spriteInstanceId,
