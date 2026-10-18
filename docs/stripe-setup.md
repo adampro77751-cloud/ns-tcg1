@@ -60,6 +60,8 @@ Each shiny pack contains 15 cards: 2 Mythics, 2 Epics, 1 Legendary and 10
 random Commons/Rares. Missing guaranteed rarities cause a set to be rejected
 before checkout. Both normal and shiny packs have a 10% bonus Sprite chance.
 The source card data stays unchanged.
+Single normal packs can also be opened in the Store for 1,000 Coins and shiny
+packs for 2,000 Coins. Their cards and any bonus Sprite are granted immediately.
 
 Physical preorder information is available at `/store/physical`, based on
 the former preorder catalog: Basic Pack £0.50, Shiny Pack £1.00, minimum order

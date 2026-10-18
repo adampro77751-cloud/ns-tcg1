@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { buyPackAction, openEarnedPackAction } from "@/lib/actions/pack-actions";
 import { PackRevealModal } from "./pack-reveal-modal";
 import type { PackOpeningResult, SetSummary } from "@/lib/packs";
-import { PACK_COST, PACK_SPRITE_CHANCE_PERCENT } from "@/lib/economy-constants";
+import { PACK_COST, SHINY_PACK_COST, PACK_SPRITE_CHANCE_PERCENT } from "@/lib/economy-constants";
 
 export function PackStoreClient({
   sets,
@@ -23,15 +23,16 @@ export function PackStoreClient({
   const [error, setError] = useState<string | null>(null);
   const [reveal, setReveal] = useState<{ setName: string; result: PackOpeningResult } | null>(null);
 
-  async function buy(setName: string, earnedPackId?: string) {
+  async function buy(setName: string, earnedPackId?: string, packKind: "NORMAL" | "SHINY" = "NORMAL") {
     setError(null);
-    setBuyingSet(setName);
+    setBuyingSet(`${setName}:${packKind}`);
     try {
       const formData = new FormData();
       formData.set("setName", setName);
+      formData.set("packKind", packKind);
       if (earnedPackId) formData.set("earnedPackId", earnedPackId);
       const result = earnedPackId ? await openEarnedPackAction(formData) : await buyPackAction(formData);
-      setReveal({ setName, result });
+      setReveal({ setName: packKind === "SHINY" ? `${setName} · Shiny` : setName, result });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -65,12 +66,14 @@ export function PackStoreClient({
         <p className="mt-8 text-sm text-slate-500">No sets are available to open packs from yet.</p>
       ) : (
         <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {sets.map((set) => {
-            const canAfford = coinBalance >= PACK_COST;
-            const isBuying = buyingSet === set.name;
+          {sets.flatMap((set) => (["NORMAL", "SHINY"] as const).map((packKind) => {
+            const shiny = packKind === "SHINY";
+            const cost = shiny ? SHINY_PACK_COST : PACK_COST;
+            const canAfford = coinBalance >= cost;
+            const isBuying = buyingSet === `${set.name}:${packKind}`;
             return (
               <div
-                key={set.name}
+                key={`${set.name}:${packKind}`}
                 className="flex flex-col overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-md transition hover:shadow-lg"
               >
                 <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-gradient-to-br from-violet-600 via-blue-600 to-sky-500">
@@ -85,32 +88,33 @@ export function PackStoreClient({
                   ) : null}
                   <div className="relative flex flex-col items-center text-white drop-shadow">
                     <span className="text-4xl">📦</span>
-                    <span className="mt-1 text-xs font-bold uppercase tracking-widest">NS TCG Pack</span>
+                    <span className="mt-1 text-xs font-bold uppercase tracking-widest">{shiny ? "NS TCG Shiny Pack" : "NS TCG Normal Pack"}</span>
                   </div>
                 </div>
                 <div className="flex flex-1 flex-col p-4">
                   <h3 className="text-lg font-bold text-slate-900">{set.name}</h3>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    {set.cardCount} card{set.cardCount === 1 ? "" : "s"} in set · 10 cards per pack
+                    {set.cardCount} card{set.cardCount === 1 ? "" : "s"} in set · {shiny ? 15 : 10} cards per pack
                   </p>
+                  {shiny && <p className="mt-2 text-xs text-slate-600">2 Mythics, 2 Epics, 1 Legendary and 10 Commons/Rares.</p>}
                   <p className="mt-2 text-xs font-semibold text-violet-700">{PACK_SPRITE_CHANCE_PERCENT}% chance of a bonus Sprite · automatically added to My Sprites</p>
                   <div className="mt-4 flex items-center justify-between">
                     <span className="flex items-center gap-1 text-lg font-extrabold text-amber-600">
-                      🪙 {PACK_COST.toLocaleString()}
+                      🪙 {cost.toLocaleString()}
                     </span>
                     <button
                       type="button"
                       disabled={!canAfford || buyingSet !== null || reveal !== null}
-                      onClick={() => buy(set.name)}
+                      onClick={() => buy(set.name, undefined, packKind)}
                       className="rounded-full bg-violet-600 px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
-                      {isBuying ? "Opening…" : canAfford ? "Buy Pack" : "Not enough Coins"}
+                      {isBuying ? "Opening…" : canAfford ? shiny ? "Open shiny pack" : "Open normal pack" : "Not enough Coins"}
                     </button>
                   </div>
                 </div>
               </div>
             );
-          })}
+          }))}
         </div>
       ))}
 

@@ -20,7 +20,8 @@ export async function buyPackAction(formData: FormData): Promise<PackOpeningResu
   if (!setName) throw new Error("Choose a set.");
 
   try {
-    const result = await buyAndOpenPack(session.user.id, setName);
+    const result = await buyAndOpenPack(session.user.id, setName, String(formData.get("packKind") ?? "NORMAL"));
+    revalidatePath("/store");
     revalidatePath("/store/packs");
     revalidatePath("/collection");
     revalidatePath("/decks");

@@ -104,4 +104,35 @@ describe("pack sprite rewards", () => {
     expect(mocks.debit).not.toHaveBeenCalled();
     expect(mocks.grant).toHaveBeenCalledWith(tx, "player", result.cards.map((card) => card.id));
   });
+
+  it.each([true, false])("charges exactly 2,000 Coins for a shiny pack and grants only when affordable: %s", async (affordable) => {
+    vi.spyOn(crypto, "randomInt").mockImplementation((() => 0) as typeof crypto.randomInt);
+    mocks.findCards.mockResolvedValue(["Common", "Rare", "Epic", "Legendary", "Mythic"].map((rarity) => ({
+      id: rarity, name: rarity, rarity, image: null, type: "Item",
+    })));
+    mocks.findSprites.mockResolvedValue([]);
+    mocks.opening.mockResolvedValue({ id: "opening" });
+    const tx = { packOpening: { create: mocks.opening } };
+    mocks.transaction.mockImplementation((callback) => callback(tx));
+    if (!affordable) mocks.debit.mockRejectedValue(new Error("Not enough Coins"));
+    const opening = buyAndOpenPack("player", "Set One", "SHINY");
+    if (affordable) {
+      const result = await opening;
+      expect(result.cards).toHaveLength(15);
+      expect(result.cards.filter((card) => card.rarity === "Mythic")).toHaveLength(2);
+      expect(mocks.opening).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ coinsSpent: 2000 }) }));
+      expect(mocks.grant).toHaveBeenCalledWith(tx, "player", result.cards.map((card) => card.id));
+    } else {
+      await expect(opening).rejects.toThrow("Not enough Coins");
+      expect(mocks.grant).not.toHaveBeenCalled();
+      expect(mocks.opening).not.toHaveBeenCalled();
+    }
+    expect(mocks.debit).toHaveBeenCalledWith(tx, "player", 2000, "PACK_PURCHASE", { setName: "Set One", packSize: 15, packKind: "SHINY" });
+  });
+
+  it("rejects an unknown pack type before any charge or card grant", async () => {
+    await expect(buyAndOpenPack("player", "Set One", "FREE")).rejects.toThrow("Choose a normal or shiny pack");
+    expect(mocks.debit).not.toHaveBeenCalled();
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
 });

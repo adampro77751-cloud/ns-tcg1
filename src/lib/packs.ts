@@ -8,7 +8,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { debitCoins, PACK_COST } from "@/lib/coins";
 import { grantCards } from "@/lib/collection";
 import { normalizeRarity, type CanonicalRarity } from "@/lib/card-rarity";
-import { PACK_SIZE } from "@/lib/economy-constants";
+import { PACK_SIZE, SHINY_PACK_COST } from "@/lib/economy-constants";
 import { PACK_SPRITE_CHANCE_PERCENT } from "@/lib/economy-constants";
 import { SPRITE_IMAGES } from "@/lib/sprite-images";
 import { generateShinyPackFromPool } from "@/lib/shiny-packs";
@@ -165,8 +165,9 @@ export function rollPackSprite<T>(sprites: T[], randomInt: (max: number) => numb
 // (insufficient Coins, a DB error) can never charge without granting, or
 // grant without charging. Card generation itself happens BEFORE the
 // transaction (pure reads), keeping the transaction itself short.
-export async function buyAndOpenPack(userId: string, setName: string): Promise<PackOpeningResult> {
-  return openPack(userId, setName);
+export async function buyAndOpenPack(userId: string, setName: string, packKind = "NORMAL"): Promise<PackOpeningResult> {
+  if (packKind !== "NORMAL" && packKind !== "SHINY") throw new Error("Choose a normal or shiny pack.");
+  return openPack(userId, setName, undefined, packKind);
 }
 
 export async function openEarnedPack(userId: string, earnedPackId: string): Promise<PackOpeningResult> {
@@ -176,6 +177,7 @@ export async function openEarnedPack(userId: string, earnedPackId: string): Prom
 }
 
 async function openPack(userId: string, setName: string, earnedPackId?: string, packKind = "NORMAL"): Promise<PackOpeningResult> {
+  const cost = packKind === "SHINY" ? SHINY_PACK_COST : PACK_COST;
   const cards = await generatePackCards(setName, packKind);
   const sprites = await prisma.sprite.findMany({
     where: { slug: { in: Object.keys(SPRITE_IMAGES) }, image: { not: null } },
@@ -191,7 +193,7 @@ async function openPack(userId: string, setName: string, earnedPackId?: string, 
       });
       if (!claimed.count) throw new Error("Reward pack already opened.");
     } else {
-      await debitCoins(tx, userId, PACK_COST, "PACK_PURCHASE", { setName, packSize: cards.length });
+      await debitCoins(tx, userId, cost, "PACK_PURCHASE", { setName, packSize: cards.length, packKind });
     }
     await grantCards(
       tx,
@@ -202,7 +204,7 @@ async function openPack(userId: string, setName: string, earnedPackId?: string, 
       data: {
         userId,
         setName,
-        coinsSpent: earnedPackId ? 0 : PACK_COST,
+        coinsSpent: earnedPackId ? 0 : cost,
         cards: cards.map((c) => ({ id: c.id, name: c.name, rarity: c.rarity, image: c.image })) as Prisma.InputJsonValue,
         packCards: { create: cards.map((c) => ({ cardId: c.id })) },
       },

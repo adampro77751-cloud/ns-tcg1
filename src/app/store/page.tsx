@@ -5,7 +5,7 @@ import { BundleStore } from "./bundles/bundle-store";
 import { getShopPaymentMode } from "@/lib/stripe";
 import { PackStoreClient } from "./packs/pack-store-client";
 import { getCoinBalance } from "@/lib/coins";
-import { PACK_COST } from "@/lib/economy-constants";
+import { PACK_COST, SHINY_PACK_COST } from "@/lib/economy-constants";
 
 export default async function StorePage({ searchParams }: { searchParams: Promise<{ cancelled?: string }> }) {
   const [session, sets, params] = await Promise.all([auth(), listAvailableSets(), searchParams]);
@@ -27,7 +27,7 @@ export default async function StorePage({ searchParams }: { searchParams: Promis
     <BundleStore sets={sets.map((set) => set.name)} canBuy={canBuy} live={mode === "live"} signedIn={signedIn} />
     <section className="mt-10 border-t border-sky-200 pt-8">
       <h2 className="text-xl font-bold">Single packs with Coins</h2>
-      <p className="mt-2 text-sm text-slate-600">{PACK_COST.toLocaleString()} Coins for a normal 10-card pack. {signedIn ? `Your balance: ${coinBalance.toLocaleString()} Coins.` : "Sign in to spend your Coins."}</p>
+      <p className="mt-2 text-sm text-slate-600">Normal packs: {PACK_COST.toLocaleString()} Coins for 10 cards. Shiny packs: {SHINY_PACK_COST.toLocaleString()} Coins for 15 cards. {signedIn ? `Your balance: ${coinBalance.toLocaleString()} Coins.` : "Sign in to spend your Coins."}</p>
       {signedIn ? <PackStoreClient sets={sets} coinBalance={coinBalance} earnedPacks={[]} /> : <Link href="/login" className="mt-4 inline-block font-semibold text-violet-700 underline">Sign in to buy packs with Coins →</Link>}
     </section>
     <Link href="/store/physical" className="mt-8 inline-block font-semibold text-violet-700 underline">Physical packs · currently disabled →</Link>
