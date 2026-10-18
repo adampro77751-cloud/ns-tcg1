@@ -24,6 +24,9 @@ export async function buyPackAction(formData: FormData): Promise<PackOpeningResu
     revalidatePath("/store/packs");
     revalidatePath("/collection");
     revalidatePath("/decks");
+    revalidatePath("/sprites");
+    revalidatePath("/sprites/mine");
+    revalidatePath(`/player/${session.user.username}`);
     return result;
   } catch (err) {
     if (err instanceof InsufficientCoinsError) {

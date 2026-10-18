@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { RARITY_COLORS, type CanonicalRarity } from "@/lib/card-rarity";
-import type { GeneratedPackCard } from "@/lib/packs";
+import type { GeneratedPackCard, PackSpriteReward } from "@/lib/packs";
 
 // Arena-style one-at-a-time pack reveal: a big face-down card the player
 // taps to flip, advancing through all PACK_SIZE cards, then a summary
@@ -12,16 +13,20 @@ import type { GeneratedPackCard } from "@/lib/packs";
 export function PackRevealModal({
   setName,
   cards,
+  sprite,
   onClose,
 }: {
   setName: string;
   cards: GeneratedPackCard[];
+  sprite: PackSpriteReward | null;
   onClose: () => void;
 }) {
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const done = index >= cards.length;
-  const current = cards[index];
+  const rewards = sprite ? [...cards, sprite] : cards;
+  const done = index >= rewards.length;
+  const current = rewards[index];
+  const showingSprite = !!sprite && index === cards.length;
 
   function reveal() {
     if (done) return;
@@ -29,7 +34,7 @@ export function PackRevealModal({
       setFlipped(true);
       return;
     }
-    if (index + 1 >= cards.length) {
+    if (index + 1 >= rewards.length) {
       setIndex(index + 1); // move past the end -> summary screen
     } else {
       setIndex(index + 1);
@@ -45,6 +50,7 @@ export function PackRevealModal({
 
       {!done && current && (
         <div className="mt-6 flex flex-col items-center">
+          {showingSprite && <p className="mb-3 rounded-full bg-amber-400 px-4 py-2 text-sm font-extrabold text-slate-950">Bonus Sprite! Added to My Sprites</p>}
           <button
             type="button"
             onClick={reveal}
@@ -63,16 +69,16 @@ export function PackRevealModal({
             {flipped ? "Tap to continue" : "Tap to reveal"}
           </p>
           <p className="mt-1 text-xs text-white/50">
-            Card {index + 1} of {cards.length}
+            {showingSprite ? "Bonus Sprite · Level 1" : `Card ${index + 1} of ${cards.length}`}
           </p>
         </div>
       )}
 
       {done && (
         <div className="mt-6 flex w-full max-w-3xl flex-col items-center">
-          <h2 className="text-2xl font-extrabold text-white">Your new cards!</h2>
+          <h2 className="text-2xl font-extrabold text-white">{sprite ? "Your cards + a bonus Sprite!" : "Your new cards!"}</h2>
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
-            {cards.map((card, i) => {
+            {rewards.map((card, i) => {
               const meta = rarityMeta(card.rarity);
               return (
                 <div
@@ -101,6 +107,7 @@ export function PackRevealModal({
               );
             })}
           </div>
+          {sprite && <Link href={`/sprites/mine/${sprite.instanceId}`} className="mt-4 text-sm font-bold text-amber-300 underline">View {sprite.name} in My Sprites →</Link>}
           <button
             type="button"
             onClick={onClose}

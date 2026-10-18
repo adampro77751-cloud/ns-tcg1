@@ -1,8 +1,9 @@
 import { prisma } from "../src/lib/prisma";
 import { serializeAllowedSets } from "../src/lib/formats";
+import { SPRITE_IMAGES } from "../src/lib/sprite-images";
 
 // Real NS TCG Sprites. Rarity is authoritative (given). description,
-// image, set, and releaseDate are intentionally left unset rather than
+// set and releaseDate are intentionally left unset rather than
 // invented. Per-level abilities (level1Ability..level5Ability) are filled
 // in only where the real text is known — left unset for the rest rather
 // than guessed.
@@ -844,10 +845,11 @@ async function main() {
   }
 
   for (const sprite of sprites) {
+    const image = SPRITE_IMAGES[sprite.slug];
     await prisma.sprite.upsert({
       where: { slug: sprite.slug },
-      update: sprite,
-      create: sprite,
+      update: { ...sprite, ...(image ? { image } : {}) },
+      create: { ...sprite, ...(image ? { image } : {}) },
     });
   }
   console.log(

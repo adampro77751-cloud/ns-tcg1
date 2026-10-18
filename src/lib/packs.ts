@@ -9,6 +9,8 @@ import { debitCoins, PACK_COST } from "@/lib/coins";
 import { grantCards } from "@/lib/collection";
 import { normalizeRarity, type CanonicalRarity } from "@/lib/card-rarity";
 import { PACK_SIZE } from "@/lib/economy-constants";
+import { PACK_SPRITE_CHANCE_PERCENT } from "@/lib/economy-constants";
+import { SPRITE_IMAGES } from "@/lib/sprite-images";
 
 export { PACK_SIZE };
 
@@ -143,7 +145,18 @@ export function generatePackFromPool(cardsInSet: {
 export type PackOpeningResult = {
   openingId: string;
   cards: GeneratedPackCard[];
+  sprite: PackSpriteReward | null;
 };
+
+export type PackSpriteReward = GeneratedPackCard & { instanceId: string };
+
+// Exactly one roll per purchased pack, independent of its ten card slots.
+// The optional random source lets tests cover boundaries without changing
+// the secure randomness used by real purchases.
+export function rollPackSprite<T>(sprites: T[], randomInt: (max: number) => number = secureRandomIndex): T | null {
+  if (!sprites.length || randomInt(100) >= PACK_SPRITE_CHANCE_PERCENT) return null;
+  return sprites[randomInt(sprites.length)];
+}
 
 // The one entry point the store action calls: generates the pack, then
 // atomically debits Coins, grants the cards to the collection, and
@@ -153,6 +166,12 @@ export type PackOpeningResult = {
 // transaction (pure reads), keeping the transaction itself short.
 export async function buyAndOpenPack(userId: string, setName: string): Promise<PackOpeningResult> {
   const cards = await generatePackCards(setName);
+  const sprites = await prisma.sprite.findMany({
+    where: { slug: { in: Object.keys(SPRITE_IMAGES) }, image: { not: null } },
+    select: { id: true, name: true, image: true, rarity: true },
+    orderBy: { slug: "asc" },
+  });
+  const bonus = rollPackSprite(sprites);
 
   return prisma.$transaction(async (tx) => {
     await debitCoins(tx, userId, PACK_COST, "PACK_PURCHASE", { setName, packSize: cards.length });
@@ -171,6 +190,25 @@ export async function buyAndOpenPack(userId: string, setName: string): Promise<P
       },
       select: { id: true },
     });
-    return { openingId: opening.id, cards };
+    let sprite: PackSpriteReward | null = null;
+    if (bonus) {
+      const edition = await tx.edition.upsert({
+        where: { slug: "1st-edition" }, update: {},
+        create: { name: "1st Edition", slug: "1st-edition" }, select: { id: true },
+      });
+      const instance = await tx.spriteInstance.create({
+        data: {
+          ownerId: userId, spriteId: bonus.id, editionId: edition.id,
+          name: bonus.name, obtainedMethod: "PACK_OPENING",
+          packOpening: { connect: { id: opening.id } },
+          history: { create: { type: "OBTAINED", detail: { method: "PACK_OPENING", packOpeningId: opening.id, setName } } },
+        },
+        select: { id: true },
+      });
+      const rarity: CanonicalRarity | null = bonus.rarity === "RARE" ? "Rare"
+        : bonus.rarity === "MYTHIC" ? "Mythic" : bonus.rarity === "LEGENDARY" ? "Legendary" : null;
+      sprite = { id: bonus.id, instanceId: instance.id, name: bonus.name, image: bonus.image, rarity, type: "Sprite" };
+    }
+    return { openingId: opening.id, cards, sprite };
   });
 }

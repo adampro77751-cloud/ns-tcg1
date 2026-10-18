@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { buyPackAction } from "@/lib/actions/pack-actions";
 import { PackRevealModal } from "./pack-reveal-modal";
 import type { PackOpeningResult, SetSummary } from "@/lib/packs";
-import { PACK_COST } from "@/lib/economy-constants";
+import { PACK_COST, PACK_SPRITE_CHANCE_PERCENT } from "@/lib/economy-constants";
 
 export function PackStoreClient({
   sets,
@@ -77,6 +77,7 @@ export function PackStoreClient({
                   <p className="mt-0.5 text-xs text-slate-500">
                     {set.cardCount} card{set.cardCount === 1 ? "" : "s"} in set · 10 cards per pack
                   </p>
+                  <p className="mt-2 text-xs font-semibold text-violet-700">{PACK_SPRITE_CHANCE_PERCENT}% chance of a bonus Sprite · automatically added to My Sprites</p>
                   <div className="mt-4 flex items-center justify-between">
                     <span className="flex items-center gap-1 text-lg font-extrabold text-amber-600">
                       🪙 {PACK_COST.toLocaleString()}
@@ -97,7 +98,7 @@ export function PackStoreClient({
         </div>
       )}
 
-      {reveal && <PackRevealModal setName={reveal.setName} cards={reveal.result.cards} onClose={closeReveal} />}
+      {reveal && <PackRevealModal setName={reveal.setName} cards={reveal.result.cards} sprite={reveal.result.sprite} onClose={closeReveal} />}
     </div>
   );
 }

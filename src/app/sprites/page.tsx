@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { SpriteArt } from "@/components/sprite-art";
 
 export default async function SpritesPage() {
   const session = await auth();
@@ -57,6 +58,7 @@ export default async function SpritesPage() {
                   href={`/sprites/${sprite.slug}`}
                   className="flex flex-col gap-2 rounded border border-sky-200 bg-white p-3 hover:border-slate-400"
                 >
+                  <SpriteArt image={sprite.image} name={sprite.name} />
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{sprite.name}</span>
                     {session?.user && (

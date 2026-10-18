@@ -8,4 +8,5 @@ export const STARTER_COIN_BALANCE = 1000;
 export const PACK_COST = 1000;
 export const MATCH_WIN_REWARD = 50;
 export const PACK_SIZE = 10;
+export const PACK_SPRITE_CHANCE_PERCENT = 10;
 export const DRAFT_ENTRY_COST = 2000;

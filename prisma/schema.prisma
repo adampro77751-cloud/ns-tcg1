@@ -197,6 +197,8 @@ model PackOpening {
   createdAt  DateTime @default(now())
 
   packCards PackOpeningCard[]
+  spriteInstanceId String? @unique
+  spriteInstance   SpriteInstance? @relation(fields: [spriteInstanceId], references: [id], onDelete: SetNull)
 
   @@index([userId])
 }
@@ -264,6 +266,7 @@ enum SpriteObtainMethod {
   REDEMPTION_CODE
   ADMIN_GRANT
   UNKNOWN
+  PACK_OPENING
 }
 
 enum SpriteHistoryEventType {
@@ -311,6 +314,7 @@ model SpriteInstance {
   updatedAt      DateTime           @updatedAt
 
   history             SpriteHistoryEntry[]
+  packOpening         PackOpening?
   redemptionCode      RedemptionCode?
   matchPlayers        MatchPlayer[]
   eventPlayers        EventPlayer[]

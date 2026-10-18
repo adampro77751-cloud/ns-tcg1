@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { LevelAbilities } from "@/components/sprite-level-abilities";
+import { SpriteArt } from "@/components/sprite-art";
 
 export default async function SpriteDetailPage({
   params,
@@ -44,6 +45,8 @@ export default async function SpriteDetailPage({
           </span>
         )}
       </div>
+
+      <SpriteArt image={sprite.image} name={sprite.name} large />
 
       {owned && (
         <div className="mt-3 rounded border border-green-200 bg-green-50 px-4 py-3">

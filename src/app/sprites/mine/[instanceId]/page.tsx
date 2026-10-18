@@ -7,6 +7,7 @@ import { getSpriteInstanceMatchStats } from "@/lib/sprite-stats";
 import { RenameSpriteForm } from "./rename-sprite-form";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { LevelAbilities } from "@/components/sprite-level-abilities";
+import { SpriteArt } from "@/components/sprite-art";
 
 const RARITY_STYLES: Record<string, string> = {
   RARE: "bg-blue-100 text-blue-800",
@@ -21,6 +22,7 @@ function describeHistoryEntry(
   const d = (detail ?? {}) as Record<string, unknown>;
   switch (type) {
     case "OBTAINED":
+      if (d.method === "PACK_OPENING") return `Opened in a ${String(d.setName ?? "NS TCG")} pack.`;
       if (d.migratedFromAggregateOwnership) {
         return "Obtained (converted from earlier aggregate ownership record).";
       }
@@ -111,6 +113,8 @@ export default async function SpriteInstancePage({
           </p>
         </div>
       </div>
+
+      <SpriteArt image={instance.sprite.image} name={instance.sprite.name} large />
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {instance.sprite.rarity && (

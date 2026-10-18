@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { MAX_SPRITE_LEVEL } from "@/lib/xp";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { SpriteArt } from "@/components/sprite-art";
 
 const RARITY_STYLES: Record<string, string> = {
   RARE: "bg-blue-100 text-blue-800",
@@ -22,7 +23,7 @@ export default async function MySpritesPage() {
       name: true,
       level: true,
       obtainedAt: true,
-      sprite: { select: { name: true, slug: true, rarity: true } },
+      sprite: { select: { name: true, slug: true, rarity: true, image: true } },
       edition: { select: { name: true } },
     },
     orderBy: [{ sprite: { name: "asc" } }, { obtainedAt: "asc" }],
@@ -53,6 +54,7 @@ export default async function MySpritesPage() {
                 href={`/sprites/mine/${instance.id}`}
                 className="flex flex-col gap-1 rounded border border-sky-200 bg-white p-3 hover:border-slate-400"
               >
+                <SpriteArt image={instance.sprite.image} name={instance.sprite.name} />
                 <span className="font-medium">{instance.name}</span>
                 <span className="text-xs text-slate-500">
                   {instance.sprite.name}

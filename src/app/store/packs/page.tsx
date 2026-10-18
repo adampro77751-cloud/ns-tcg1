@@ -20,6 +20,7 @@ export default async function PackStorePage() {
             Spend Coins on packs from any NS TCG set — {PACK_COST.toLocaleString()} Coins for 10 cards. No real-money
             payments yet — Coins only.
           </p>
+          <p className="mt-2 text-sm font-semibold text-violet-700">Each pack also has a 10% chance to contain a bonus Sprite. Keep it automatically—no claim code needed.</p>
         </div>
         <div className="flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-lg font-extrabold text-amber-700">
           🪙 {coinBalance.toLocaleString()}
