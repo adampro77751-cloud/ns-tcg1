@@ -5,6 +5,7 @@ import { getCoinBalance } from "@/lib/coins";
 import { PACK_COST } from "@/lib/economy-constants";
 import { PackStoreClient } from "./pack-store-client";
 import { prisma } from "@/lib/prisma";
+import Link from "next/link";
 
 export default async function PackStorePage() {
   const session = await auth();
@@ -33,6 +34,7 @@ export default async function PackStorePage() {
       </div>
 
       <PackStoreClient sets={sets} coinBalance={coinBalance} earnedPacks={earnedPacks} />
+      {session.user.role === "ADMIN" && <Link href="/store/stripe-test" className="mt-8 inline-block text-sm font-semibold text-violet-700 underline">Try Stripe test checkout →</Link>}
     </div>
   );
 }
