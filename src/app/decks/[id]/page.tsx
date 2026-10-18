@@ -12,6 +12,7 @@ import {
 import { RenameDeckForm } from "./rename-deck-form";
 import { CardPicker } from "./card-picker";
 import { CardNameHover } from "@/components/card-name-hover";
+import { getEquippedCardArt } from "@/lib/card-styles";
 
 export default async function DeckDetailPage({
   params,
@@ -50,6 +51,8 @@ export default async function DeckDetailPage({
   });
 
   if (!deck) notFound();
+  const art = await getEquippedCardArt(deck.userId);
+  for (const row of deck.cards) row.card.image = art.get(row.card.id) ?? row.card.image;
 
   const isOwner = session?.user?.id === deck.userId;
   const legality = await getDeckLegality(deck.id);
@@ -76,6 +79,7 @@ export default async function DeckDetailPage({
   const deckCardQuantities = new Map(
     deck.cards.map((dc) => [dc.card.id, dc.quantity]),
   );
+  for (const card of allCards) card.image = art.get(card.id) ?? card.image;
   const ownedQuantities = isOwner ? await getCollectionMap(deck.userId) : new Map();
 
   return (

@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import Link from "next/link";
 import { SHOP_PRODUCTS, formatGBP, type ShopProduct } from "@/lib/shop-products";
 import { buyBundleAction } from "./actions";
+import { GOLDEN_COINS_STYLE } from "@/lib/card-style-catalog";
 
 function BundleCard({ product, sets, canBuy, live, signedIn }: { product: ShopProduct; sets: string[]; canBuy: boolean; live: boolean; signedIn: boolean }) {
   const [state, action, pending] = useActionState(buyBundleAction, { error: null });
@@ -11,6 +12,11 @@ function BundleCard({ product, sets, canBuy, live, signedIn }: { product: ShopPr
     <input type="hidden" name="productId" value={product.id} />
     <h3 className="text-lg font-bold">{product.name}</h3>
     <p className="mt-2 text-2xl font-extrabold text-violet-700">{formatGBP(product.pricePence)}</p>
+    {product.id === GOLDEN_COINS_STYLE.productId && <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={GOLDEN_COINS_STYLE.image} alt="Exclusive Cathedral Pergrines Golden Coins art" className="mx-auto w-32 rounded-lg" />
+      <p className="mt-2 text-xs font-bold text-amber-900">Includes exclusive Cathedral Pergrines · Golden Coins art style. Only available with this bundle.</p>
+    </div>}
     {product.packs > 0 && <>
       <p className="mt-2 text-sm text-slate-600">{product.packKind === "SHINY" ? "15 cards: 2 Mythic, 2 Epic, 1 Legendary and 10 Common/Rare." : "10 cards per pack."} Each pack has a 10% bonus Sprite chance.</p>
       <label className="mt-4 text-sm font-semibold">Card set

@@ -3,6 +3,8 @@ import { getStripe, getStripeAppOrigin, getStripeMode, getStripeWebhookSecret } 
 import { getShopProduct, ShopSelectionError } from "./shop-products";
 import { generateShinyPackFromPool } from "./shiny-packs";
 import { creditCoins } from "./coins";
+import { grantPurchaseCardStyle } from "./card-styles";
+import { GOLDEN_COINS_STYLE } from "./card-style-catalog";
 
 const PURPOSE = "ns-tcg-shop";
 
@@ -12,6 +14,10 @@ export async function createShopCheckout(userId: string, productId: string, requ
   if (mode === "live") getStripeWebhookSecret();
   const stripe = getStripe();
   const origin = getStripeAppOrigin();
+  if (product.id === GOLDEN_COINS_STYLE.productId) {
+    const card = await prisma.card.findUnique({ where: { slug: GOLDEN_COINS_STYLE.cardSlug }, select: { id: true } });
+    if (!card) throw new ShopSelectionError("The exclusive art bundle is temporarily unavailable.");
+  }
   let setName: string | null = null;
   if (product.packs) {
     if (!requestedSet || requestedSet.length > 200) throw new ShopSelectionError("Choose a set for your packs.");
@@ -34,7 +40,8 @@ export async function createShopCheckout(userId: string, productId: string, requ
     mode: "payment", managed_payments: { enabled: false },
     client_reference_id: userId, metadata: { purpose: PURPOSE, purchaseId: purchase.id },
     line_items: [{ quantity: 1, price_data: { currency: "gbp", unit_amount: product.pricePence,
-      product_data: { name: product.name, ...(setName ? { description: `${setName} · ${product.packKind === "SHINY" ? "15" : "10"} cards per pack` } : {}) },
+      product_data: { name: product.name, ...(setName ? { description: `${setName} · ${product.packKind === "SHINY" ? "15" : "10"} cards per pack` }
+        : product.id === GOLDEN_COINS_STYLE.productId ? { description: "Includes exclusive Cathedral Pergrines Golden Coins art style." } : {}) },
     } }],
     success_url: `${origin}/store/checkout?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/store?cancelled=1`,
@@ -71,6 +78,7 @@ export async function fulfillShopCheckout(sessionId: string, expectedUserId?: st
       data: { fulfilledAt: new Date(), stripeSessionId: sessionId },
     });
     if (!claimed.count) return;
+    await grantPurchaseCardStyle(tx, purchase);
     if (purchase.coins) await creditCoins(tx, purchase.userId, purchase.coins, "STRIPE_PURCHASE", {
       purchaseId: purchase.id, stripeSessionId: session.id, productId: purchase.productId,
     });

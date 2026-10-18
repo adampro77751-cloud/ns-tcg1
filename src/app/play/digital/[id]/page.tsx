@@ -19,6 +19,7 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import { DigitalCreateForm } from "../digital-create-form";
 import { Battlefield } from "./battlefield";
 import { getMatchWinCoinAward } from "@/lib/match-rewards";
+import { getVisibleInstanceArt } from "@/lib/card-styles";
 
 export default async function DigitalMatchPage({ params }: PageProps<"/play/digital/[id]">) {
   const session = await requirePlayerPage();
@@ -168,6 +169,10 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
     ...visible.players[1].discard.map((c) => c.cardId),
   ];
   const cardsById = await getCardDisplayMap(allVisibleCardIds);
+  const cardImagesByInstanceId = await getVisibleInstanceArt(visible.players.map((player, index) => ({
+    userId: match.players[index]?.userId ?? null,
+    cards: [...player.hand.filter((c): c is Extract<typeof c, { cardId: string }> => "cardId" in c), ...player.battlefield, ...player.discard],
+  })));
   const engineCardsById = new Map(
     Array.from(cardsById.entries()).map(([id, c]) => [
       id,
@@ -200,6 +205,7 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
       matchId={match.id}
       visible={visible}
       cardsById={Object.fromEntries(cardsById)}
+      cardImagesByInstanceId={cardImagesByInstanceId}
       spritesById={Object.fromEntries(spritesById)}
       legalActions={legalActions}
       isBotTurn={isBotTurn}

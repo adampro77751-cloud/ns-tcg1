@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { fulfillShopCheckout } from "@/lib/shop";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { getShopPaymentMode } from "@/lib/stripe";
+import { GOLDEN_COINS_STYLE } from "@/lib/card-style-catalog";
 
 export default async function CheckoutResultPage({ searchParams }: { searchParams: Promise<{ session_id?: string }> }) {
   const session = await auth();
@@ -18,6 +19,7 @@ export default async function CheckoutResultPage({ searchParams }: { searchParam
       {purchase?.fulfilled ? <>
         <p className="mt-4">{purchase.productName} {purchase.setName ? `· ${purchase.setName}` : ""}</p>
         <p className="mt-2 text-sm">{purchase.coins ? `${purchase.coins.toLocaleString()} Coins added to your balance.` : `${purchase.packs} packs added to your Pack Store.`}</p>
+        {purchase.productId === GOLDEN_COINS_STYLE.productId && <Link href="/collection" className="mt-3 block text-sm font-bold text-amber-800 underline">Golden Coins card style unlocked! View it in your collection →</Link>}
         {getShopPaymentMode() === "test" && <p className="mt-3 text-xs text-slate-500">Sandbox test purchase. No real money was charged.</p>}
       </> : <><p className="mt-4 text-sm">{purchase ? "Your payment is still processing. Items will be added once Stripe confirms payment." : "Refresh to check again. If you completed payment, Stripe’s confirmation will add your items automatically. Contact support if they do not arrive."}</p>
         {purchase && <AutoRefresh intervalMs={5000} />}</>}

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePlayerAction } from "@/lib/player-access";
+import { getEquippedCardArt } from "@/lib/card-styles";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { requireOwnedLegalDeck } from "@/lib/decks";
@@ -595,6 +596,7 @@ export async function getSearchableDeckItemsAction(matchId: string, instanceId: 
   const deck = player.deck;
   const candidates = deck.filter((c) => !itemsOnly || cardsById.get(c.cardId)?.type === "Item");
   const displayMap = await getCardDisplayMap(candidates.map((c) => c.cardId));
+  const art = await getEquippedCardArt(session.user.id);
 
   return candidates.map((instance) => {
     const card = displayMap.get(instance.cardId);
@@ -607,7 +609,7 @@ export async function getSearchableDeckItemsAction(matchId: string, instanceId: 
       attack: card?.attack ?? null,
       defence: card?.defence ?? null,
       speed: card?.speed ?? null,
-      image: card?.image ?? null,
+      image: art.get(instance.cardId) ?? card?.image ?? null,
     };
   });
 }

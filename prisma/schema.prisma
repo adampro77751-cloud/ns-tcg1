@@ -76,6 +76,7 @@ model User {
   draftPods        DraftPod[]
   earnedPacks      EarnedPack[]
   purchases        ShopPurchase[]
+  cardStyles       UserCardStyle[]
 }
 
 // Public-facing profile data, separate from auth/account data so it is safe
@@ -120,6 +121,7 @@ model Card {
   digitalMatchDeckSnapshots DigitalMatchPlayerDeckCard[]
   ownedBy                   UserCard[]
   packOpeningCards          PackOpeningCard[]
+  styles                    UserCardStyle[]
 }
 
 // ---------------------------------------------------------------------------
@@ -855,8 +857,25 @@ model ShopPurchase {
   fulfilledAt     DateTime?
   createdAt       DateTime @default(now())
   earnedPacks     EarnedPack[]
+  styleUnlocks    UserCardStyle[]
 
   @@index([userId, createdAt])
+}
+
+model UserCardStyle {
+  id         String @id @default(cuid())
+  userId     String
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cardId     String
+  card       Card @relation(fields: [cardId], references: [id])
+  styleKey   String
+  purchaseId String
+  purchase   ShopPurchase @relation(fields: [purchaseId], references: [id])
+  equipped   Boolean @default(true)
+  unlockedAt DateTime @default(now())
+
+  @@unique([userId, styleKey])
+  @@index([userId, cardId])
 }
 
 model DigitalMatchPlayer {

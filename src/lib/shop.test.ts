@@ -3,14 +3,16 @@ const mocks = vi.hoisted(() => ({
   createSession: vi.fn(), retrieve: vi.fn(), createPurchase: vi.fn(), updatePurchase: vi.fn(), findPurchase: vi.fn(),
   claim: vi.fn(), packs: vi.fn(), credit: vi.fn(), transaction: vi.fn(), cards: vi.fn(),
   mode: vi.fn(), webhookSecret: vi.fn(),
+  styleGrant: vi.fn(), styleCard: vi.fn(),
 }));
 vi.mock("./prisma", () => ({ prisma: {
   shopPurchase: { create: mocks.createPurchase, update: mocks.updatePurchase, findUnique: mocks.findPurchase },
-  card: { findMany: mocks.cards }, $transaction: mocks.transaction,
+  card: { findMany: mocks.cards, findUnique: mocks.styleCard }, $transaction: mocks.transaction,
 } }));
 vi.mock("./stripe", () => ({ getStripe: () => ({ checkout: { sessions: { create: mocks.createSession, retrieve: mocks.retrieve } } }),
   getStripeAppOrigin: () => "https://example.com", getStripeMode: mocks.mode, getStripeWebhookSecret: mocks.webhookSecret }));
 vi.mock("./coins", () => ({ creditCoins: mocks.credit }));
+vi.mock("./card-styles", () => ({ grantPurchaseCardStyle: mocks.styleGrant }));
 import { createShopCheckout, fulfillShopCheckout } from "./shop";
 import { SHOP_PRODUCTS, getShopProduct, PHYSICAL_SALES_ENABLED, PHYSICAL_MINIMUM_PENCE } from "./shop-products";
 
@@ -24,6 +26,7 @@ describe("shop purchases", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.mode.mockReturnValue("test");
+    mocks.styleCard.mockResolvedValue({ id: "cathedral" });
     mocks.createPurchase.mockResolvedValue(purchase);
     mocks.createSession.mockResolvedValue({ id: paid.id, livemode: false, url: "https://checkout.stripe.com/test" });
     mocks.findPurchase.mockResolvedValue(purchase);
@@ -116,6 +119,25 @@ describe("shop purchases", () => {
     mocks.retrieve.mockResolvedValue({ ...paid, payment_status: "unpaid" });
     expect((await fulfillShopCheckout(paid.id))?.fulfilled).toBe(false);
     expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(mocks.styleGrant).not.toHaveBeenCalled();
+  });
+
+  it("grants the 50,000-Coin style through the same transaction as the paid Coins, once", async () => {
+    const qualifying = { ...purchase, productId: "coins-50000", amountPence: 600, coins: 50000 };
+    mocks.findPurchase.mockResolvedValue(qualifying);
+    mocks.retrieve.mockResolvedValue({ ...paid, amount_total: 600, line_items: { data: [{ quantity: 1, amount_total: 600 }] } });
+    mocks.claim.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    await fulfillShopCheckout(paid.id);
+    await fulfillShopCheckout(paid.id);
+    expect(mocks.styleGrant).toHaveBeenCalledTimes(1);
+    expect(mocks.styleGrant).toHaveBeenCalledWith(expect.anything(), qualifying);
+    expect(mocks.credit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open checkout for the exclusive bundle if its card is missing", async () => {
+    mocks.styleCard.mockResolvedValue(null);
+    await expect(createShopCheckout("player", "coins-50000", "")).rejects.toThrow("temporarily unavailable");
+    expect(mocks.createSession).not.toHaveBeenCalled();
   });
 
   it.each([{ amount_total: 1 }, { currency: "usd" }, { livemode: true }, { client_reference_id: "other" },

@@ -56,6 +56,13 @@ Prices are defined on the server in `src/lib/shop-products.ts`.
 | 20,000 Coins | £3.75 |
 | 50,000 Coins | £6.00 |
 
+The 50,000-Coin bundle exclusively unlocks the Cathedral Pergrines Golden Coins
+art style. Paid fulfillment grants the style in the same transaction as Coins,
+once per account. It starts equipped; Collection lets its owner switch back to
+standard art. It changes card art in Collection, decks and digital games, with
+no card stats or playable copies added. Packs, drafts and other bundles never
+grant it. The migration backfills previously fulfilled live 50,000-Coin purchases.
+
 Each shiny pack contains 15 cards: 2 Mythics, 2 Epics, 1 Legendary and 10
 random Commons/Rares. Missing guaranteed rarities cause a set to be rejected
 before checkout. Both normal and shiny packs have a 10% bonus Sprite chance.

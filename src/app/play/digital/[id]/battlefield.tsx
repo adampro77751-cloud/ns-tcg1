@@ -58,6 +58,7 @@ const CARD_SIZE_FULLSCREEN = "w-32 sm:w-40 md:w-48 lg:w-56";
 
 function CardFace({
   cardId,
+  imageOverride,
   cardsById,
   onEnlarge,
   large,
@@ -66,6 +67,7 @@ function CardFace({
   onSelect,
 }: {
   cardId: string;
+  imageOverride?: string;
   cardsById: Record<string, CardDisplay>;
   onEnlarge: (card: CardDisplay) => void;
   large?: boolean;
@@ -74,7 +76,8 @@ function CardFace({
   onSelect?: () => void;
 }) {
   const size = large ? CARD_SIZE_FULLSCREEN : CARD_SIZE;
-  const card = cardsById[cardId];
+  const base = cardsById[cardId];
+  const card = base && imageOverride ? { ...base, image: imageOverride } : base;
   if (!card) return <div className={`aspect-[5/7] ${size} rounded-lg bg-sky-100`} />;
   return (
     <div className="relative">
@@ -459,7 +462,7 @@ function DeckSearchModal({
               <p className="text-sm text-slate-400">Nothing eligible left in your deck to find.</p>
             )}
             {items.length > 0 && filtered.length === 0 && (
-              <p className="text-sm text-slate-400">No match for "{query}".</p>
+              <p className="text-sm text-slate-400">No match for &quot;{query}&quot;.</p>
             )}
           </div>
         )}
@@ -479,6 +482,7 @@ function DiscardPickerModal({
   action,
   requirement,
   discard,
+  cardImagesByInstanceId,
   cardsById,
   onClose,
 }: {
@@ -487,6 +491,7 @@ function DiscardPickerModal({
   action: PlayFormAction;
   requirement: Extract<TargetRequirement, { kind: "DISCARD_CARD" }>;
   discard: { instanceId: string; cardId: string }[];
+  cardImagesByInstanceId: Record<string, string>;
   cardsById: Record<string, CardDisplay>;
   onClose: () => void;
 }) {
@@ -541,7 +546,8 @@ function DiscardPickerModal({
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
           {eligible.map((c) => {
-            const card = cardsById[c.cardId];
+            const base = cardsById[c.cardId];
+            const card = base && cardImagesByInstanceId[c.instanceId] ? { ...base, image: cardImagesByInstanceId[c.instanceId] } : base;
             const isSelected = selected.includes(c.instanceId);
             return (
               <button
@@ -591,6 +597,7 @@ export function Battlefield({
   matchId,
   visible,
   cardsById,
+  cardImagesByInstanceId,
   spritesById,
   legalActions,
   isBotTurn,
@@ -600,6 +607,7 @@ export function Battlefield({
   matchId: string;
   visible: VisibleGameState;
   cardsById: Record<string, CardDisplay>;
+  cardImagesByInstanceId: Record<string, string>;
   spritesById: Record<string, SpriteDisplay>;
   legalActions: LegalAction[];
   isBotTurn: boolean;
@@ -922,7 +930,7 @@ export function Battlefield({
         {pending && youAreDefending && (
           <div className="mt-4 rounded-xl border-2 border-red-300 bg-red-50 p-4 text-center shadow-lg">
             <p className="text-base font-extrabold text-red-800">CHOOSE A DEFENDER</p>
-            <p className="mt-1 text-sm text-red-700">{opponentUsername}'s {attackerName} is attacking you.</p>
+            <p className="mt-1 text-sm text-red-700">{opponentUsername}&apos;s {attackerName} is attacking you.</p>
             <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
               {you.battlefield
                 .filter((c) => defendableInstanceIds.has(c.instanceId))
@@ -931,7 +939,7 @@ export function Battlefield({
                     <input type="hidden" name="matchId" value={matchId} />
                     <input type="hidden" name="defenderInstanceId" value={c.instanceId} />
                     <button type="submit" className="flex flex-col items-center gap-1">
-                      <CardFace cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
+                      <CardFace cardId={c.cardId} imageOverride={cardImagesByInstanceId[c.instanceId]} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
                       <span className="rounded bg-red-600 px-3 py-1 text-xs font-bold text-white hover:bg-red-700">
                         Defend
                       </span>
@@ -969,7 +977,7 @@ export function Battlefield({
               "hidden" in c ? (
                 <CardBack key={c.instanceId} large={isFullscreen} />
               ) : (
-                <CardFace key={c.instanceId} cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
+                <CardFace key={c.instanceId} cardId={c.cardId} imageOverride={cardImagesByInstanceId[c.instanceId]} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
               ),
             )}
             {opponent.hand.length === 0 && (
@@ -980,7 +988,7 @@ export function Battlefield({
             {opponent.battlefield.map((c) => (
               <CardFace
                 key={c.instanceId}
-                cardId={c.cardId}
+                cardId={c.cardId} imageOverride={cardImagesByInstanceId[c.instanceId]}
                 cardsById={cardsById}
                 onEnlarge={setEnlarged}
                 large={isFullscreen}
@@ -1008,7 +1016,7 @@ export function Battlefield({
             {you.battlefield.map((c) => (
               <div key={c.instanceId} className="flex flex-col items-center gap-1.5">
                 <CardFace
-                  cardId={c.cardId}
+                  cardId={c.cardId} imageOverride={cardImagesByInstanceId[c.instanceId]}
                   cardsById={cardsById}
                   onEnlarge={setEnlarged}
                   large={isFullscreen}
@@ -1080,7 +1088,7 @@ export function Battlefield({
             {you.hand.map((c) =>
               "hidden" in c ? null : (
                 <div key={c.instanceId} className="flex flex-col items-center gap-1.5">
-                  <CardFace cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
+                  <CardFace cardId={c.cardId} imageOverride={cardImagesByInstanceId[c.instanceId]} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
                   {playableInstanceIds.has(c.instanceId) &&
                     renderPlayControl(
                       c.instanceId,
@@ -1100,7 +1108,7 @@ export function Battlefield({
                 .filter((c) => playableInstanceIds.has(c.instanceId))
                 .map((c) => (
                   <div key={c.instanceId} className="flex flex-col items-center gap-1.5">
-                    <CardFace cardId={c.cardId} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
+                    <CardFace cardId={c.cardId} imageOverride={cardImagesByInstanceId[c.instanceId]} cardsById={cardsById} onEnlarge={setEnlarged} large={isFullscreen} />
                     {renderPlayControl(c.instanceId, c.cardId, playDigitalSpellAction)}
                   </div>
                 ))}
@@ -1202,6 +1210,7 @@ export function Battlefield({
           action={discardPick.action}
           requirement={discardPick.requirement}
           discard={you.discard}
+          cardImagesByInstanceId={cardImagesByInstanceId}
           cardsById={cardsById}
           onClose={() => setDiscardPick(null)}
         />
@@ -1241,7 +1250,8 @@ export function Battlefield({
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
               {visible.players[openDiscard].discard.map((c) => {
-                const card = cardsById[c.cardId];
+                const base = cardsById[c.cardId];
+                const card = base && cardImagesByInstanceId[c.instanceId] ? { ...base, image: cardImagesByInstanceId[c.instanceId] } : base;
                 return (
                   <div key={c.instanceId} className="flex w-28 flex-col items-center gap-1 text-center">
                     <div className="aspect-[5/7] w-28 overflow-hidden rounded-lg border-2 border-amber-300 bg-white shadow">
