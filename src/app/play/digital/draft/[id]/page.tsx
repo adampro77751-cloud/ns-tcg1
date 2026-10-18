@@ -4,6 +4,7 @@ import { requireAdminPage } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { countDraftCards, getDraftStandings, type DraftState } from "@/lib/draft-logic";
 import { DraftPickForm, DraftDeckForm, ResumeDraftForm } from "../draft-forms";
+import { getDraftPrize } from "@/lib/draft-rewards";
 
 export default async function DraftPodPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireAdminPage();
@@ -25,6 +26,7 @@ export default async function DraftPodPage({ params }: { params: Promise<{ id: s
   const pool = countDraftCards(state.pools[0]).map((row) => ({ ...byId.get(row.cardId)!, quantity: row.quantity }));
   const latest = pod.matches[0];
   const standings = getDraftStandings(state.results);
+  const prize = pod.reward as { place: number; coins: number; packs: number } | null;
   const seatName = (seat: number) => seat === 0 ? session.user.username : `Bot ${seat}`;
 
   return (
@@ -55,13 +57,18 @@ export default async function DraftPodPage({ params }: { params: Promise<{ id: s
             : <ResumeDraftForm podId={pod.id} />}
         </div>}
         {pod.status === "COMPLETED" && <p className="mt-6 rounded-xl bg-violet-50 p-5 font-semibold text-violet-800">You finished all five rounds with {standings.find((row) => row.seat === 0)?.wins} wins. All 30 draft picks are yours to keep.</p>}
+        {pod.status === "COMPLETED" && prize && <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-5">
+          <h2 className="text-lg font-bold">Place {prize.place} · Prizes awarded</h2>
+          <p className="mt-2 text-sm">{prize.coins.toLocaleString()} Coins added to your balance · {prize.packs} reward pack{prize.packs === 1 ? "" : "s"} earned.</p>
+          {prize.packs > 0 && <Link href="/store/packs" className="mt-3 inline-block font-semibold text-violet-700 underline">Open your reward packs →</Link>}
+        </section>}
         <section className="mt-8">
           <h2 className="text-lg font-bold">Pod standings</h2>
           <div className="mt-3 overflow-x-auto rounded-xl border border-sky-200">
             <table className="w-full text-left text-sm"><thead className="bg-sky-50"><tr>
-              <th className="p-3">Player</th><th className="p-3">Wins</th><th className="p-3">Losses</th><th className="p-3">Draws</th><th className="p-3">Points</th>
+              <th className="p-3">Place</th><th className="p-3">Player</th><th className="p-3">Wins</th><th className="p-3">Losses</th><th className="p-3">Draws</th><th className="p-3">Points</th>
             </tr></thead><tbody>{standings.map((row) => <tr key={row.seat} className={row.seat === 0 ? "bg-violet-50 font-semibold" : "border-t border-sky-100"}>
-              <td className="p-3">{seatName(row.seat)}</td><td className="p-3">{row.wins}</td><td className="p-3">{row.losses}</td><td className="p-3">{row.draws}</td><td className="p-3">{row.points}</td>
+              <td className="p-3">{getDraftPrize(state.results, row.seat).place}</td><td className="p-3">{seatName(row.seat)}</td><td className="p-3">{row.wins}</td><td className="p-3">{row.losses}</td><td className="p-3">{row.draws}</td><td className="p-3">{row.points}</td>
             </tr>)}</tbody></table>
           </div>
           <p className="mt-2 text-xs text-slate-500">Win: 3 points · Draw: 1 point. Tied records share a placing. Bot-only games use the same battle engine; games stalled beyond 100 turns or 1,000 decisions are draws.</p>

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
-import { buyAndOpenPack, type PackOpeningResult } from "@/lib/packs";
+import { buyAndOpenPack, openEarnedPack, type PackOpeningResult } from "@/lib/packs";
 import { InsufficientCoinsError } from "@/lib/coins";
 
 // Called directly from the client store component (not a useActionState
@@ -34,4 +34,12 @@ export async function buyPackAction(formData: FormData): Promise<PackOpeningResu
     }
     throw err;
   }
+}
+
+export async function openEarnedPackAction(formData: FormData): Promise<PackOpeningResult> {
+  const session = await auth();
+  if (!session?.user) throw new Error("You must be logged in.");
+  const result = await openEarnedPack(session.user.id, String(formData.get("earnedPackId") ?? ""));
+  revalidatePath("/", "layout");
+  return result;
 }

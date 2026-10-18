@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma, type DraftStatus } from "@/generated/prisma/client";
-import { debitCoins } from "@/lib/coins";
+import { debitCoins, creditCoins } from "@/lib/coins";
+import { getDraftPrize } from "@/lib/draft-rewards";
 import { grantCards } from "@/lib/collection";
 import { DRAFT_ENTRY_COST } from "@/lib/economy-constants";
 import { generatePackFromPool } from "@/lib/packs";
@@ -175,6 +176,14 @@ export async function advanceDraftAfterMatch(matchId: string) {
     const cards = finished ? new Map<string, EngineCard>() : await loadDraftCards(tx, state);
     if (!finished) simulateOtherPairings(state, round + 1, cards);
     await savePod(tx, pod, state, finished ? "COMPLETED" : "PLAYING");
+    if (finished) {
+      const prize = getDraftPrize(state.results);
+      await tx.draftPod.update({ where: { id: pod.id }, data: { reward: prize } });
+      await creditCoins(tx, pod.userId, prize.coins, "DRAFT_REWARD", { draftPodId: pod.id, ...prize });
+      if (prize.packs) await tx.earnedPack.createMany({ data: Array.from({ length: prize.packs }, (_, number) => ({
+        userId: pod.userId, draftPodId: pod.id, number, setName: pod.setName,
+      })) });
+    }
     if (!finished) await createRoundMatch(tx, podId, pod.userId, state, round + 1, cards);
   }, { timeout: 20000 }).catch((error: unknown) => {
     // Another completion request already advanced this pod. Its write and

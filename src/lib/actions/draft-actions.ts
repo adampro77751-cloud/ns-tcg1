@@ -69,5 +69,6 @@ export async function resumeDraftAction(_previous: DraftFormState, form: FormDat
     if (last?.status === "COMPLETED") await advanceDraftAfterMatch(last.id);
   } catch (error) { return errorState(error); }
   revalidatePath(`/play/digital/draft/${podId}`);
+  revalidatePath("/store/packs");
   return { error: null };
 }

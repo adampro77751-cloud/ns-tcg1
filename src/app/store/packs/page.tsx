@@ -4,12 +4,17 @@ import { listAvailableSets } from "@/lib/packs";
 import { getCoinBalance } from "@/lib/coins";
 import { PACK_COST } from "@/lib/economy-constants";
 import { PackStoreClient } from "./pack-store-client";
+import { prisma } from "@/lib/prisma";
 
 export default async function PackStorePage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
   const [sets, coinBalance] = await Promise.all([listAvailableSets(), getCoinBalance(session.user.id)]);
+  const earnedPacks = await prisma.earnedPack.findMany({
+    where: { userId: session.user.id, openedAt: null }, orderBy: { createdAt: "asc" },
+    select: { id: true, setName: true },
+  });
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-12">
@@ -27,7 +32,7 @@ export default async function PackStorePage() {
         </div>
       </div>
 
-      <PackStoreClient sets={sets} coinBalance={coinBalance} />
+      <PackStoreClient sets={sets} coinBalance={coinBalance} earnedPacks={earnedPacks} />
     </div>
   );
 }

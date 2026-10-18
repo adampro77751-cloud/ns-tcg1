@@ -74,6 +74,7 @@ model User {
   ownedCards       UserCard[]
   packOpenings     PackOpening[]
   draftPods        DraftPod[]
+  earnedPacks      EarnedPack[]
 }
 
 // Public-facing profile data, separate from auth/account data so it is safe
@@ -139,6 +140,7 @@ enum CoinTransactionType {
   PACK_PURCHASE
   ADMIN_GRANT
   DRAFT_ENTRY
+  DRAFT_REWARD
 }
 
 // Append-only ledger — the actual source of truth for a player's Coins,
@@ -811,8 +813,25 @@ model DraftPod {
   createdAt    DateTime    @default(now())
   completedAt  DateTime?
   matches      DigitalMatch[]
+  reward       Json?
+  earnedPacks  EarnedPack[]
 
   @@index([userId, createdAt])
+}
+
+model EarnedPack {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  draftPodId String
+  draftPod   DraftPod @relation(fields: [draftPodId], references: [id])
+  number     Int
+  setName    String
+  openedAt   DateTime?
+  createdAt  DateTime @default(now())
+
+  @@unique([draftPodId, number])
+  @@index([userId, openedAt])
 }
 
 model DigitalMatchPlayer {

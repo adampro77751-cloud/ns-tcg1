@@ -165,6 +165,16 @@ export function rollPackSprite<T>(sprites: T[], randomInt: (max: number) => numb
 // grant without charging. Card generation itself happens BEFORE the
 // transaction (pure reads), keeping the transaction itself short.
 export async function buyAndOpenPack(userId: string, setName: string): Promise<PackOpeningResult> {
+  return openPack(userId, setName);
+}
+
+export async function openEarnedPack(userId: string, earnedPackId: string): Promise<PackOpeningResult> {
+  const pack = await prisma.earnedPack.findFirst({ where: { id: earnedPackId, userId, openedAt: null } });
+  if (!pack) throw new Error("Reward pack not found or already opened.");
+  return openPack(userId, pack.setName, earnedPackId);
+}
+
+async function openPack(userId: string, setName: string, earnedPackId?: string): Promise<PackOpeningResult> {
   const cards = await generatePackCards(setName);
   const sprites = await prisma.sprite.findMany({
     where: { slug: { in: Object.keys(SPRITE_IMAGES) }, image: { not: null } },
@@ -174,7 +184,14 @@ export async function buyAndOpenPack(userId: string, setName: string): Promise<P
   const bonus = rollPackSprite(sprites);
 
   return prisma.$transaction(async (tx) => {
-    await debitCoins(tx, userId, PACK_COST, "PACK_PURCHASE", { setName, packSize: cards.length });
+    if (earnedPackId) {
+      const claimed = await tx.earnedPack.updateMany({
+        where: { id: earnedPackId, userId, openedAt: null }, data: { openedAt: new Date() },
+      });
+      if (!claimed.count) throw new Error("Reward pack already opened.");
+    } else {
+      await debitCoins(tx, userId, PACK_COST, "PACK_PURCHASE", { setName, packSize: cards.length });
+    }
     await grantCards(
       tx,
       userId,
@@ -184,7 +201,7 @@ export async function buyAndOpenPack(userId: string, setName: string): Promise<P
       data: {
         userId,
         setName,
-        coinsSpent: PACK_COST,
+        coinsSpent: earnedPackId ? 0 : PACK_COST,
         cards: cards.map((c) => ({ id: c.id, name: c.name, rarity: c.rarity, image: c.image })) as Prisma.InputJsonValue,
         packCards: { create: cards.map((c) => ({ cardId: c.id })) },
       },

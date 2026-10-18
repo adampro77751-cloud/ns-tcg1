@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { buyPackAction } from "@/lib/actions/pack-actions";
+import { buyPackAction, openEarnedPackAction } from "@/lib/actions/pack-actions";
 import { PackRevealModal } from "./pack-reveal-modal";
 import type { PackOpeningResult, SetSummary } from "@/lib/packs";
 import { PACK_COST, PACK_SPRITE_CHANCE_PERCENT } from "@/lib/economy-constants";
@@ -10,22 +10,25 @@ import { PACK_COST, PACK_SPRITE_CHANCE_PERCENT } from "@/lib/economy-constants";
 export function PackStoreClient({
   sets,
   coinBalance,
+  earnedPacks,
 }: {
   sets: SetSummary[];
   coinBalance: number;
+  earnedPacks: { id: string; setName: string }[];
 }) {
   const router = useRouter();
   const [buyingSet, setBuyingSet] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reveal, setReveal] = useState<{ setName: string; result: PackOpeningResult } | null>(null);
 
-  async function buy(setName: string) {
+  async function buy(setName: string, earnedPackId?: string) {
     setError(null);
     setBuyingSet(setName);
     try {
       const formData = new FormData();
       formData.set("setName", setName);
-      const result = await buyPackAction(formData);
+      if (earnedPackId) formData.set("earnedPackId", earnedPackId);
+      const result = earnedPackId ? await openEarnedPackAction(formData) : await buyPackAction(formData);
       setReveal({ setName, result });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -44,6 +47,15 @@ export function PackStoreClient({
       {error && (
         <div className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       )}
+
+      {earnedPacks.length > 0 && <section className="mt-8 rounded-2xl border border-amber-300 bg-amber-50 p-5">
+        <h2 className="text-lg font-bold">Your earned packs · {earnedPacks.length}</h2>
+        <p className="mt-1 text-sm text-slate-600">Draft prizes are free to open, with the same 10% bonus Sprite chance.</p>
+        <ul className="mt-4 space-y-2">{earnedPacks.map((pack) => <li key={pack.id} className="flex items-center justify-between gap-3">
+          <span className="text-sm font-semibold">{pack.setName} · Draft reward</span>
+          <button type="button" disabled={buyingSet !== null || reveal !== null} onClick={() => buy(pack.setName, pack.id)} className="rounded-full bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:bg-slate-300">Open free pack</button>
+        </li>)}</ul>
+      </section>}
 
       {sets.length === 0 ? (
         <p className="mt-8 text-sm text-slate-500">No sets are available to open packs from yet.</p>
@@ -84,7 +96,7 @@ export function PackStoreClient({
                     </span>
                     <button
                       type="button"
-                      disabled={!canAfford || isBuying}
+                      disabled={!canAfford || buyingSet !== null || reveal !== null}
                       onClick={() => buy(set.name)}
                       className="rounded-full bg-violet-600 px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
