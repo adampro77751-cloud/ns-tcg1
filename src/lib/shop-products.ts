@@ -11,7 +11,7 @@ export const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: "coins-5000", name: "5,000 Coins", pricePence: 100, coins: 5000, packs: 0, packKind: "NORMAL" },
   { id: "coins-10000", name: "10,000 Coins", pricePence: 200, coins: 10000, packs: 0, packKind: "NORMAL" },
   { id: "coins-20000", name: "20,000 Coins", pricePence: 375, coins: 20000, packs: 0, packKind: "NORMAL" },
-  { id: "coins-50000", name: "50,000 Coins", pricePence: 450, coins: 50000, packs: 0, packKind: "NORMAL" },
+  { id: "coins-50000", name: "50,000 Coins", pricePence: 600, coins: 50000, packs: 0, packKind: "NORMAL" },
 ];
 
 export const PHYSICAL_PACKS = [

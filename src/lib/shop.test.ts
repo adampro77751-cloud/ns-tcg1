@@ -35,7 +35,7 @@ describe("shop purchases", () => {
   it("uses exactly the requested eight bundles and GBP prices; physical packs cannot be bought", () => {
     expect(SHOP_PRODUCTS.map((p) => [p.id, p.pricePence])).toEqual([
       ["normal-6", 100], ["normal-12", 175], ["normal-24", 325], ["shiny-6", 200],
-      ["coins-5000", 100], ["coins-10000", 200], ["coins-20000", 375], ["coins-50000", 450],
+      ["coins-5000", 100], ["coins-10000", 200], ["coins-20000", 375], ["coins-50000", 600],
     ]);
     expect(PHYSICAL_SALES_ENABLED).toBe(false);
     expect(PHYSICAL_MINIMUM_PENCE).toBe(150);

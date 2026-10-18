@@ -54,7 +54,7 @@ Prices are defined on the server in `src/lib/shop-products.ts`.
 | 5,000 Coins | £1.00 |
 | 10,000 Coins | £2.00 |
 | 20,000 Coins | £3.75 |
-| 50,000 Coins | £4.50 |
+| 50,000 Coins | £6.00 |
 
 Each shiny pack contains 15 cards: 2 Mythics, 2 Epics, 1 Legendary and 10
 random Commons/Rares. Missing guaranteed rarities cause a set to be rejected
