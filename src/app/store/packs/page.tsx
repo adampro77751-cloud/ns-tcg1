@@ -14,7 +14,7 @@ export default async function PackStorePage() {
   const [sets, coinBalance] = await Promise.all([listAvailableSets(), getCoinBalance(session.user.id)]);
   const earnedPacks = await prisma.earnedPack.findMany({
     where: { userId: session.user.id, openedAt: null }, orderBy: { createdAt: "asc" },
-    select: { id: true, setName: true },
+    select: { id: true, setName: true, packKind: true, purchaseId: true },
   });
 
   return (
@@ -34,6 +34,10 @@ export default async function PackStorePage() {
       </div>
 
       <PackStoreClient sets={sets} coinBalance={coinBalance} earnedPacks={earnedPacks} />
+      <div className="mt-8 flex flex-wrap gap-4 text-sm font-semibold text-violet-700">
+        <Link href="/store/bundles" className="underline">Pack &amp; Coin bundles →</Link>
+        <Link href="/store/physical" className="underline">Physical packs · disabled →</Link>
+      </div>
       {session.user.role === "ADMIN" && <Link href="/store/stripe-test" className="mt-8 inline-block text-sm font-semibold text-violet-700 underline">Try Stripe test checkout →</Link>}
     </div>
   );

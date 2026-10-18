@@ -82,4 +82,26 @@ describe("pack sprite rewards", () => {
     await expect(openEarnedPack("other-player", "reward")).rejects.toThrow("not found");
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
+
+  it("opens a purchased shiny pack with all 15 cards and its bonus Sprite", async () => {
+    vi.spyOn(crypto, "randomInt").mockImplementation((() => 0) as typeof crypto.randomInt);
+    mocks.earned.mockResolvedValue({ id: "reward", setName: "Set One", packKind: "SHINY" });
+    mocks.findCards.mockResolvedValue(["Common", "Rare", "Epic", "Legendary", "Mythic"].map((rarity) => ({
+      id: rarity, name: rarity, rarity, image: null, type: "Item",
+    })));
+    mocks.findSprites.mockResolvedValue([{ id: "fire", name: "Fire Sprite", image: "/sprites/fire-sprite.png", rarity: "RARE" }]);
+    mocks.claim.mockResolvedValue({ count: 1 });
+    mocks.opening.mockResolvedValue({ id: "opening" });
+    mocks.edition.mockResolvedValue({ id: "edition" });
+    mocks.instance.mockResolvedValue({ id: "owned-sprite" });
+    const tx = { earnedPack: { updateMany: mocks.claim }, packOpening: { create: mocks.opening },
+      edition: { upsert: mocks.edition }, spriteInstance: { create: mocks.instance } };
+    mocks.transaction.mockImplementation((callback) => callback(tx));
+    const result = await openEarnedPack("player", "reward");
+    expect(result.cards).toHaveLength(15);
+    expect(result.cards.filter((card) => card.rarity === "Mythic")).toHaveLength(2);
+    expect(result.sprite?.instanceId).toBe("owned-sprite");
+    expect(mocks.debit).not.toHaveBeenCalled();
+    expect(mocks.grant).toHaveBeenCalledWith(tx, "player", result.cards.map((card) => card.id));
+  });
 });

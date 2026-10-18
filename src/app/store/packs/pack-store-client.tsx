@@ -14,7 +14,7 @@ export function PackStoreClient({
 }: {
   sets: SetSummary[];
   coinBalance: number;
-  earnedPacks: { id: string; setName: string }[];
+  earnedPacks: { id: string; setName: string; packKind: string; purchaseId: string | null }[];
 }) {
   const router = useRouter();
   const [buyingSet, setBuyingSet] = useState<string | null>(null);
@@ -49,11 +49,11 @@ export function PackStoreClient({
       )}
 
       {earnedPacks.length > 0 && <section className="mt-8 rounded-2xl border border-amber-300 bg-amber-50 p-5">
-        <h2 className="text-lg font-bold">Your earned packs · {earnedPacks.length}</h2>
-        <p className="mt-1 text-sm text-slate-600">Draft prizes are free to open, with the same 10% bonus Sprite chance.</p>
+        <h2 className="text-lg font-bold">Your unopened packs · {earnedPacks.length}</h2>
+        <p className="mt-1 text-sm text-slate-600">Purchased packs and draft prizes are ready to open, with the same 10% bonus Sprite chance.</p>
         <ul className="mt-4 space-y-2">{earnedPacks.map((pack) => <li key={pack.id} className="flex items-center justify-between gap-3">
-          <span className="text-sm font-semibold">{pack.setName} · Draft reward</span>
-          <button type="button" disabled={buyingSet !== null || reveal !== null} onClick={() => buy(pack.setName, pack.id)} className="rounded-full bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:bg-slate-300">Open free pack</button>
+          <span className="text-sm font-semibold">{pack.setName} · {pack.packKind === "SHINY" ? "Shiny · 15 cards" : "Normal · 10 cards"} · {pack.purchaseId ? "Purchased" : "Draft reward"}</span>
+          <button type="button" disabled={buyingSet !== null || reveal !== null} onClick={() => buy(pack.setName, pack.id)} className="rounded-full bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:bg-slate-300">Open pack</button>
         </li>)}</ul>
       </section>}
 

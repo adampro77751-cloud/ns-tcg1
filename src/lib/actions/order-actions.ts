@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { MAX_ORDER_QUANTITY } from "@/lib/orders-constants";
 import { requireOrderManagerAction } from "@/lib/order-access";
+import { PHYSICAL_SALES_ENABLED } from "@/lib/shop-products";
 
 export type OrderFormState = {
   error: string | null;
@@ -22,6 +23,7 @@ export async function reserveOrderAction(
 ): Promise<OrderFormState> {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  if (!PHYSICAL_SALES_ENABLED) return { error: "Physical pack sales are currently disabled." };
 
   const packId = String(formData.get("packId") ?? "");
   const quantityRaw = Number(formData.get("quantity"));

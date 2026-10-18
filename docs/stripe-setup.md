@@ -3,8 +3,10 @@
 The Stripe Node SDK, server configuration helpers and webhook signature
 verification are installed. An admin-only simulated £1 Checkout is available
 at `/store/stripe-test`, linked from the Pack Store. It only accepts test-mode
-keys and grants no Coins, cards or packs. Real purchase fulfillment and a
-webhook HTTP endpoint are not connected yet.
+keys and grants no Coins, cards or packs. The bundle store at `/store/bundles`
+supports the configured GBP prices, with admin-only sandbox purchases.
+Purchased Coins are credited to the wallet and packs are saved to open later.
+The signed webhook is `/api/stripe/webhook`.
 
 ## Try checkout
 
@@ -26,19 +28,51 @@ to the same page. No webhook signing secret is needed for this demonstration.
    the ignored `.env` file. The helper rejects live-mode keys.
 3. Set `APP_URL=https://ns-tcg1.onrender.com`, or use Render's automatically
    provided `RENDER_EXTERNAL_URL`. Locally use `http://localhost:3000`.
-4. Once the webhook route is implemented, create a test-mode webhook destination
-   and set its signing secret as `STRIPE_WEBHOOK_SECRET`. This is a separate
-   `whsec_…` value, not the Stripe API key. Do not register an endpoint yet.
+4. In Stripe Workbench (in the same sandbox as your key), create a webhook
+   destination for `https://ns-tcg1.onrender.com/api/stripe/webhook`.
+   Select `checkout.session.completed` and `checkout.session.async_payment_succeeded`.
+   Set its signing secret as `STRIPE_WEBHOOK_SECRET` in Render, then save and deploy.
+   This is a separate `whsec_…` value, not the Stripe API key. It ensures purchases
+   are delivered even when a customer closes the browser before returning.
 
 Hosted Checkout redirects to Stripe's payment page and does not require a
 publishable key or Stripe.js in this app.
 
-## Choose products before connecting checkout
+## Products
 
-Confirm what is being sold (Coin bundles, physical packs, or both), the currency,
-and each price. The current digital store exchanges Coins for packs; the old
-physical preorder store is disabled. Physical purchases also need shipping
-regions, shipping prices and a fulfillment workflow.
+Prices are defined on the server in `src/lib/shop-products.ts`.
+
+| Digital bundle | GBP |
+| --- | ---: |
+| 6 normal packs | £1.00 |
+| 12 normal packs | £1.75 |
+| 24 normal packs | £3.25 |
+| 6 shiny packs | £2.00 |
+| 5,000 Coins | £1.00 |
+| 10,000 Coins | £2.00 |
+| 20,000 Coins | £3.75 |
+| 50,000 Coins | £4.50 |
+
+Each shiny pack contains 15 cards: 2 Mythics, 2 Epics, 1 Legendary and 10
+random Commons/Rares. Missing guaranteed rarities cause a set to be rejected
+before checkout. Both normal and shiny packs have a 10% bonus Sprite chance.
+The source card data stays unchanged.
+
+Physical preorder information is available at `/store/physical`, based on
+the former preorder catalog: Basic Pack £0.50, Shiny Pack £1.00, minimum order
+£1.50. Sales and reservation actions remain disabled. Shipping and actual
+physical checkout must be configured before enabling these products.
+
+## Test purchases
+
+Sign in as admin, choose a bundle and set at `/store/bundles`, then use a test
+card. Returning to the site retrieves the paid session from Stripe and grants
+the snapshotted purchase. Repeated return visits and duplicate webhooks cannot
+duplicate rewards. Packs can then be opened at `/store/packs`.
+
+Test a second purchase while closing the browser before returning, and verify
+that its webhook still grants the purchase. Live keys are rejected; public
+purchase buttons remain disabled until live payments are deliberately configured.
 
 ## Integration requirements
 

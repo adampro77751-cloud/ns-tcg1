@@ -75,6 +75,7 @@ model User {
   packOpenings     PackOpening[]
   draftPods        DraftPod[]
   earnedPacks      EarnedPack[]
+  purchases        ShopPurchase[]
 }
 
 // Public-facing profile data, separate from auth/account data so it is safe
@@ -141,6 +142,7 @@ enum CoinTransactionType {
   ADMIN_GRANT
   DRAFT_ENTRY
   DRAFT_REWARD
+  STRIPE_PURCHASE
 }
 
 // Append-only ledger — the actual source of truth for a player's Coins,
@@ -823,15 +825,38 @@ model EarnedPack {
   id         String   @id @default(cuid())
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  draftPodId String
-  draftPod   DraftPod @relation(fields: [draftPodId], references: [id])
+  draftPodId String?
+  draftPod   DraftPod? @relation(fields: [draftPodId], references: [id], onDelete: Restrict)
+  purchaseId String?
+  purchase   ShopPurchase? @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  packKind   String @default("NORMAL")
   number     Int
   setName    String
   openedAt   DateTime?
   createdAt  DateTime @default(now())
 
   @@unique([draftPodId, number])
+  @@unique([purchaseId, number])
   @@index([userId, openedAt])
+}
+
+model ShopPurchase {
+  id              String @id @default(cuid())
+  userId          String
+  user            User @relation(fields: [userId], references: [id])
+  stripeSessionId String? @unique
+  productId       String
+  productName     String
+  amountPence     Int
+  coins           Int
+  packs           Int
+  packKind        String
+  setName         String?
+  fulfilledAt     DateTime?
+  createdAt       DateTime @default(now())
+  earnedPacks     EarnedPack[]
+
+  @@index([userId, createdAt])
 }
 
 model DigitalMatchPlayer {

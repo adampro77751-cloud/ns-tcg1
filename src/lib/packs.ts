@@ -1,6 +1,6 @@
 // Pack store service — set listing, secure random pack generation, and
-// the atomic buy+open transaction. No real-money payments anywhere here;
-// Coins (src/lib/coins.ts) are the only purchase method. Server-side only
+// the atomic buy+open transaction. Coins buy normal packs here; Stripe
+// purchases and draft prizes are saved as unopened packs. Server-side only
 // — the client never supplies pack contents, only which set to buy from.
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
@@ -11,6 +11,7 @@ import { normalizeRarity, type CanonicalRarity } from "@/lib/card-rarity";
 import { PACK_SIZE } from "@/lib/economy-constants";
 import { PACK_SPRITE_CHANCE_PERCENT } from "@/lib/economy-constants";
 import { SPRITE_IMAGES } from "@/lib/sprite-images";
+import { generateShinyPackFromPool } from "@/lib/shiny-packs";
 
 export { PACK_SIZE };
 
@@ -86,7 +87,7 @@ export type GeneratedPackCard = {
 // Generates PACK_SIZE cards for `setName` server-side. `setName` is only
 // ever used to filter the server's own Card table — never trusted for
 // anything beyond that. Throws if the set has no cards at all.
-export async function generatePackCards(setName: string): Promise<GeneratedPackCard[]> {
+export async function generatePackCards(setName: string, packKind = "NORMAL"): Promise<GeneratedPackCard[]> {
   const cardsInSet = await prisma.card.findMany({
     where: { set: setName },
     select: { id: true, name: true, rarity: true, image: true, type: true },
@@ -95,7 +96,7 @@ export async function generatePackCards(setName: string): Promise<GeneratedPackC
     throw new Error(`No cards found in set "${setName}".`);
   }
 
-  return generatePackFromPool(cardsInSet);
+  return packKind === "SHINY" ? generateShinyPackFromPool(cardsInSet) : generatePackFromPool(cardsInSet);
 }
 
 // Also used by Draft to generate the whole pod from one database read.
@@ -171,11 +172,11 @@ export async function buyAndOpenPack(userId: string, setName: string): Promise<P
 export async function openEarnedPack(userId: string, earnedPackId: string): Promise<PackOpeningResult> {
   const pack = await prisma.earnedPack.findFirst({ where: { id: earnedPackId, userId, openedAt: null } });
   if (!pack) throw new Error("Reward pack not found or already opened.");
-  return openPack(userId, pack.setName, earnedPackId);
+  return openPack(userId, pack.setName, earnedPackId, pack.packKind);
 }
 
-async function openPack(userId: string, setName: string, earnedPackId?: string): Promise<PackOpeningResult> {
-  const cards = await generatePackCards(setName);
+async function openPack(userId: string, setName: string, earnedPackId?: string, packKind = "NORMAL"): Promise<PackOpeningResult> {
+  const cards = await generatePackCards(setName, packKind);
   const sprites = await prisma.sprite.findMany({
     where: { slug: { in: Object.keys(SPRITE_IMAGES) }, image: { not: null } },
     select: { id: true, name: true, image: true, rarity: true },
