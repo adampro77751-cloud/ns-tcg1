@@ -11,7 +11,9 @@ webhook HTTP endpoint are not connected yet.
 After deployment, sign in with an admin account and open
 `https://ns-tcg1.onrender.com/store/stripe-test`. Click **Try £1 test checkout**.
 Use `4242 4242 4242 4242`, any future expiry, any three-digit CVC and any postal
-code. The return page retrieves the session from Stripe and checks its owner,
+code. This demonstration disables Managed Payments for its session, overriding
+the account default, because no product is being sold or classified for tax.
+The return page retrieves the session from Stripe and checks its owner,
 purpose, amount and payment status before showing success. Cancelling returns
 to the same page. No webhook signing secret is needed for this demonstration.
 

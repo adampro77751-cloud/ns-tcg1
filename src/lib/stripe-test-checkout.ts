@@ -6,6 +6,9 @@ export async function createTestCheckout(userId: string): Promise<string> {
   const origin = getStripeAppOrigin();
   const session = await getStripe().checkout.sessions.create({
     mode: "payment",
+    // Account defaults can enable Managed Payments, which requires product
+    // tax classification. This demonstration sells no product.
+    managed_payments: { enabled: false },
     client_reference_id: userId,
     metadata: { purpose: PURPOSE },
     line_items: [{

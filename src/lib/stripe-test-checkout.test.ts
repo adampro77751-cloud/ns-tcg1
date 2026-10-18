@@ -15,6 +15,7 @@ describe("Stripe trial checkout", () => {
     expect(await createTestCheckout("player")).toBe("https://checkout.stripe.com/test");
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       mode: "payment", client_reference_id: "player",
+      managed_payments: { enabled: false },
       metadata: { purpose: "ns-tcg-test-checkout" },
       line_items: [expect.objectContaining({ quantity: 1, price_data: expect.objectContaining({ currency: "gbp", unit_amount: 100 }) })],
       success_url: "https://example.com/store/stripe-test?session_id={CHECKOUT_SESSION_ID}",
