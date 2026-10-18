@@ -6,6 +6,7 @@ import { PACK_COST } from "@/lib/economy-constants";
 import { PackStoreClient } from "./pack-store-client";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
+import { getShopPaymentMode } from "@/lib/stripe";
 
 export default async function PackStorePage() {
   const session = await auth();
@@ -23,8 +24,8 @@ export default async function PackStorePage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">🪙 Pack Store</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Spend Coins on packs from any NS TCG set — {PACK_COST.toLocaleString()} Coins for 10 cards. No real-money
-            payments yet — Coins only.
+            Spend Coins on packs from any NS TCG set — {PACK_COST.toLocaleString()} Coins for 10 cards.
+            You can also browse pack and Coin bundles below.
           </p>
           <p className="mt-2 text-sm font-semibold text-violet-700">Each pack also has a 10% chance to contain a bonus Sprite. Keep it automatically—no claim code needed.</p>
         </div>
@@ -38,7 +39,7 @@ export default async function PackStorePage() {
         <Link href="/store/bundles" className="underline">Pack &amp; Coin bundles →</Link>
         <Link href="/store/physical" className="underline">Physical packs · disabled →</Link>
       </div>
-      {session.user.role === "ADMIN" && <Link href="/store/stripe-test" className="mt-8 inline-block text-sm font-semibold text-violet-700 underline">Try Stripe test checkout →</Link>}
+      {session.user.role === "ADMIN" && getShopPaymentMode() === "test" && <Link href="/store/stripe-test" className="mt-8 inline-block text-sm font-semibold text-violet-700 underline">Try Stripe test checkout →</Link>}
     </div>
   );
 }

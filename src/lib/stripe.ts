@@ -4,12 +4,36 @@ import Stripe from "stripe";
 
 export class StripeConfigurationError extends Error {}
 
-export function getStripe(): Stripe {
+export function getStripeMode(): "test" | "live" {
   const key = process.env.STRIPE_SECRET_KEY?.trim();
-  if (!key || !/^(sk|rk)_test_/.test(key)) {
-    throw new StripeConfigurationError("Set STRIPE_SECRET_KEY to a Stripe test-mode secret or restricted key.");
+  const mode = key?.match(/^(?:sk|rk)_(test|live)_/u)?.[1];
+  if (mode !== "test" && mode !== "live") {
+    throw new StripeConfigurationError("Set STRIPE_SECRET_KEY to a Stripe secret or restricted key for test or live mode.");
   }
+  return mode;
+}
+
+export function getStripe(): Stripe {
+  getStripeMode();
+  const key = process.env.STRIPE_SECRET_KEY!.trim();
   return new Stripe(key, { maxNetworkRetries: 2 });
+}
+
+export function getStripeWebhookSecret(): string {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  if (!secret?.startsWith("whsec_")) {
+    throw new StripeConfigurationError("Set STRIPE_WEBHOOK_SECRET to the endpoint's signing secret.");
+  }
+  return secret;
+}
+
+export function getShopPaymentMode(): "test" | "live" | null {
+  try {
+    const mode = getStripeMode();
+    getStripeAppOrigin();
+    if (mode === "live") getStripeWebhookSecret();
+    return mode;
+  } catch { return null; }
 }
 
 export function getStripeAppOrigin(): string {
@@ -27,12 +51,9 @@ export function getStripeAppOrigin(): string {
 
 // Pass request.text() unchanged: parsing and re-serializing JSON invalidates signatures.
 export function verifyStripeWebhook(payload: string, signature: string | null): Stripe.Event {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
-  if (!secret?.startsWith("whsec_")) {
-    throw new StripeConfigurationError("Set STRIPE_WEBHOOK_SECRET to the endpoint's signing secret.");
-  }
+  const secret = getStripeWebhookSecret();
   if (!signature) throw new Error("Missing Stripe webhook signature.");
   const event = getStripe().webhooks.constructEvent(payload, signature, secret);
-  if (event.livemode) throw new Error("Live Stripe events are disabled during test-mode setup.");
+  if (event.livemode !== (getStripeMode() === "live")) throw new Error("Stripe event mode does not match the configured key.");
   return event;
 }

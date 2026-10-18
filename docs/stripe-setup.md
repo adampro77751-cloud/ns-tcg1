@@ -1,10 +1,12 @@
-# Stripe test-mode setup
+# Stripe setup
 
 The Stripe Node SDK, server configuration helpers and webhook signature
 verification are installed. An admin-only simulated £1 Checkout is available
 at `/store/stripe-test`, linked from the Pack Store. It only accepts test-mode
 keys and grants no Coins, cards or packs. The bundle store at `/store/bundles`
-supports the configured GBP prices, with admin-only sandbox purchases.
+supports the configured GBP prices. Test keys allow admin sandbox purchases;
+live keys enable real purchases for logged-in customers once the webhook signing
+secret is configured. The demo checkout is disabled before any API call in live mode.
 Purchased Coins are credited to the wallet and packs are saved to open later.
 The signed webhook is `/api/stripe/webhook`.
 
@@ -25,14 +27,15 @@ to the same page. No webhook signing secret is needed for this demonstration.
    settings. Keep the replacement in a secrets store, not chat or Git.
 2. In Render, open the NS TCG service's Environment settings and set
    `STRIPE_SECRET_KEY` to the replacement test key. For local development use
-   the ignored `.env` file. The helper rejects live-mode keys.
+   the ignored `.env` file. Use test keys while testing.
 3. Set `APP_URL=https://ns-tcg1.onrender.com`, or use Render's automatically
    provided `RENDER_EXTERNAL_URL`. Locally use `http://localhost:3000`.
 4. In Stripe Workbench (in the same sandbox as your key), create a webhook
    destination for `https://ns-tcg1.onrender.com/api/stripe/webhook`.
    Select `checkout.session.completed` and `checkout.session.async_payment_succeeded`.
    Set its signing secret as `STRIPE_WEBHOOK_SECRET` in Render, then save and deploy.
-   This is a separate `whsec_…` value, not the Stripe API key. It ensures purchases
+   Choose Snapshot payloads, events from Your account, and API version
+   `2026-09-30.endive`. This is a separate `whsec_…` value, not the Stripe API key. It ensures purchases
    are delivered even when a customer closes the browser before returning.
 
 Hosted Checkout redirects to Stripe's payment page and does not require a
@@ -68,11 +71,29 @@ physical checkout must be configured before enabling these products.
 Sign in as admin, choose a bundle and set at `/store/bundles`, then use a test
 card. Returning to the site retrieves the paid session from Stripe and grants
 the snapshotted purchase. Repeated return visits and duplicate webhooks cannot
-duplicate rewards. Packs can then be opened at `/store/packs`.
+   duplicate rewards. Packs can then be opened at `/store/packs`.
 
 Test a second purchase while closing the browser before returning, and verify
-that its webhook still grants the purchase. Live keys are rejected; public
-purchase buttons remain disabled until live payments are deliberately configured.
+that its webhook still grants the purchase.
+
+## Enable live purchases
+
+Complete Stripe account activation, then create the same webhook destination
+in live mode. In Render, set `STRIPE_SECRET_KEY` to the live secret/restricted
+key and `STRIPE_WEBHOOK_SECRET` to that LIVE endpoint's signing secret. Keep
+`APP_URL=https://ns-tcg1.onrender.com`, then save, rebuild and deploy.
+
+The key prefix selects the mode automatically; no extra mode variable is needed.
+The public Buy bundle buttons only become available with a live key, a configured
+signing secret and a valid app URL. A missing signing secret blocks creation of
+live checkouts. Webhooks and Checkout Sessions must match the configured mode.
+Returning with a paid live session grants the same snapshotted rewards once.
+The test demo redirects to the bundle store in live mode and cannot create a charge.
+Physical sales and reservations remain disabled.
+
+Verify the deployed store displays Buy bundle (not Test purchase), and check
+payment delivery in Stripe's live webhook logs. Live payments require real
+payment details; the automated checks use mocked live sessions and do not charge cards.
 
 ## Integration requirements
 

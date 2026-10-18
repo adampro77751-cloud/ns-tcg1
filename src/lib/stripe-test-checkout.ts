@@ -1,8 +1,9 @@
-import { getStripe, getStripeAppOrigin } from "./stripe";
+import { getStripe, getStripeAppOrigin, getStripeMode, StripeConfigurationError } from "./stripe";
 
 const PURPOSE = "ns-tcg-test-checkout";
 
 export async function createTestCheckout(userId: string): Promise<string> {
+  if (getStripeMode() !== "test") throw new StripeConfigurationError("The demo checkout is disabled with live keys. Use the bundle store for real purchases.");
   const origin = getStripeAppOrigin();
   const session = await getStripe().checkout.sessions.create({
     mode: "payment",
@@ -26,6 +27,7 @@ export async function createTestCheckout(userId: string): Promise<string> {
 }
 
 export async function getTestCheckoutStatus(userId: string, sessionId: string): Promise<"paid" | "pending"> {
+  if (getStripeMode() !== "test") throw new Error("Test checkout is disabled in live mode.");
   if (!/^cs_test_[A-Za-z0-9_]+$/.test(sessionId) || sessionId.length > 255) throw new Error("Invalid test session.");
   const session = await getStripe().checkout.sessions.retrieve(sessionId);
   if (session.livemode || session.client_reference_id !== userId || session.metadata?.purpose !== PURPOSE ||

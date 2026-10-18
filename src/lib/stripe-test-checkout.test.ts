@@ -1,14 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ create: vi.fn(), retrieve: vi.fn() }));
+const mocks = vi.hoisted(() => ({ create: vi.fn(), retrieve: vi.fn(), mode: vi.fn() }));
 vi.mock("./stripe", () => ({
   getStripe: () => ({ checkout: { sessions: mocks } }),
   getStripeAppOrigin: () => "https://example.com",
+  getStripeMode: mocks.mode,
+  StripeConfigurationError: class extends Error {},
 }));
 import { createTestCheckout, getTestCheckoutStatus } from "./stripe-test-checkout";
 
 describe("Stripe trial checkout", () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => { vi.resetAllMocks(); mocks.mode.mockReturnValue("test"); });
+
+  it("never creates the demo payment with a live key", async () => {
+    mocks.mode.mockReturnValue("live");
+    await expect(createTestCheckout("player")).rejects.toThrow("disabled with live keys");
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
 
   it("creates a fixed £1 payment bound to the logged-in user", async () => {
     mocks.create.mockResolvedValue({ livemode: false, url: "https://checkout.stripe.com/test" });

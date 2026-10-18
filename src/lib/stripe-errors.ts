@@ -5,7 +5,7 @@ function redactSecrets(message: string): string {
   return message.replace(/\b(?:[spr]k_(?:test|live)_|whsec_)[A-Za-z0-9_*.-]+/g, "[hidden key]").slice(0, 600);
 }
 
-// This diagnostic is only returned by the admin-only checkout action.
+// Detailed diagnostics are only returned to admins by checkout actions.
 // Authentication errors can include a partial API key; never return those messages.
 export function describeStripeCheckoutError(error: unknown): string {
   if (error instanceof StripeConfigurationError) return error.message;
@@ -16,9 +16,9 @@ export function describeStripeCheckoutError(error: unknown): string {
     ? ` Stripe request: ${error.requestId}.` : "";
   switch (error.type) {
     case "StripeAuthenticationError":
-      return "Stripe rejected the API key. In Render, replace STRIPE_SECRET_KEY with the full active secret key from your Stripe sandbox, then save and deploy. Use the secret key, not the publishable key." + reference;
+      return "Stripe rejected the API key. In Render, replace STRIPE_SECRET_KEY with the full active secret key for the Stripe mode you want, then save and deploy. Use the secret key, not the publishable key." + reference;
     case "StripePermissionError":
-      return "This Stripe key does not have permission to create Checkout Sessions. Update its permissions in Stripe or use your sandbox secret key, then save and deploy in Render." + reference;
+      return "This Stripe key does not have permission to create Checkout Sessions. Update its permissions in Stripe or use the appropriate secret key, then save and deploy in Render." + reference;
     case "StripeConnectionError":
       return "The server could not connect to Stripe. Try again in a moment." + reference;
     case "StripeRateLimitError":

@@ -2,13 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(), retrieve: vi.fn(), createPurchase: vi.fn(), updatePurchase: vi.fn(), findPurchase: vi.fn(),
   claim: vi.fn(), packs: vi.fn(), credit: vi.fn(), transaction: vi.fn(), cards: vi.fn(),
+  mode: vi.fn(), webhookSecret: vi.fn(),
 }));
 vi.mock("./prisma", () => ({ prisma: {
   shopPurchase: { create: mocks.createPurchase, update: mocks.updatePurchase, findUnique: mocks.findPurchase },
   card: { findMany: mocks.cards }, $transaction: mocks.transaction,
 } }));
 vi.mock("./stripe", () => ({ getStripe: () => ({ checkout: { sessions: { create: mocks.createSession, retrieve: mocks.retrieve } } }),
-  getStripeAppOrigin: () => "https://example.com" }));
+  getStripeAppOrigin: () => "https://example.com", getStripeMode: mocks.mode, getStripeWebhookSecret: mocks.webhookSecret }));
 vi.mock("./coins", () => ({ creditCoins: mocks.credit }));
 import { createShopCheckout, fulfillShopCheckout } from "./shop";
 import { SHOP_PRODUCTS, getShopProduct, PHYSICAL_SALES_ENABLED, PHYSICAL_MINIMUM_PENCE } from "./shop-products";
@@ -22,6 +23,7 @@ const paid = { id: "cs_test_purchase", livemode: false, mode: "payment", client_
 describe("shop purchases", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.mode.mockReturnValue("test");
     mocks.createPurchase.mockResolvedValue(purchase);
     mocks.createSession.mockResolvedValue({ id: paid.id, livemode: false, url: "https://checkout.stripe.com/test" });
     mocks.findPurchase.mockResolvedValue(purchase);
@@ -47,6 +49,35 @@ describe("shop purchases", () => {
       mode: "payment", managed_payments: { enabled: false }, client_reference_id: "player",
       line_items: [expect.objectContaining({ quantity: 1, price_data: expect.objectContaining({ currency: "gbp", unit_amount: 100 }) })],
     }), { idempotencyKey: "shop-purchase" });
+    expect(mocks.credit).not.toHaveBeenCalled();
+  });
+
+  it("creates live checkout and grants a verified live payment once", async () => {
+    mocks.mode.mockReturnValue("live");
+    const sessionId = "cs_live_purchase";
+    mocks.createSession.mockResolvedValue({ id: sessionId, livemode: true, url: "https://checkout.stripe.com/live" });
+    expect(await createShopCheckout("player", "coins-5000", "")).toBe("https://checkout.stripe.com/live");
+    expect(mocks.webhookSecret).toHaveBeenCalled();
+    mocks.retrieve.mockResolvedValue({ ...paid, id: sessionId, livemode: true });
+    mocks.findPurchase.mockResolvedValue({ ...purchase, stripeSessionId: sessionId });
+    mocks.claim.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    expect((await fulfillShopCheckout(sessionId, "player"))?.fulfilled).toBe(true);
+    await fulfillShopCheckout(sessionId, "player");
+    expect(mocks.credit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start a live checkout if the webhook secret is missing", async () => {
+    mocks.mode.mockReturnValue("live");
+    mocks.webhookSecret.mockImplementation(() => { throw new Error("Missing webhook secret"); });
+    await expect(createShopCheckout("player", "coins-5000", "")).rejects.toThrow("webhook");
+    expect(mocks.createSession).not.toHaveBeenCalled();
+    expect(mocks.createPurchase).not.toHaveBeenCalled();
+  });
+
+  it("rejects sandbox sessions in live mode before retrieving or granting", async () => {
+    mocks.mode.mockReturnValue("live");
+    await expect(fulfillShopCheckout(paid.id)).rejects.toThrow("Invalid");
+    expect(mocks.retrieve).not.toHaveBeenCalled();
     expect(mocks.credit).not.toHaveBeenCalled();
   });
 

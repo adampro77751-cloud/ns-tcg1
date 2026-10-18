@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Stripe from "stripe";
-import { getStripe, getStripeAppOrigin, verifyStripeWebhook } from "./stripe";
+import { getStripe, getStripeMode, getShopPaymentMode, getStripeAppOrigin, verifyStripeWebhook } from "./stripe";
 
 // Deliberately fake credentials. Signature checks run locally without API requests.
 const secret = "whsec_local_unit_test";
 const client = new Stripe("sk_test_local_unit_test");
 
-describe("Stripe test-mode setup", () => {
+describe("Stripe mode configuration", () => {
   beforeEach(() => {
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_local_unit_test");
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", secret);
@@ -15,11 +15,16 @@ describe("Stripe test-mode setup", () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  it("accepts test keys and rejects missing or live credentials without revealing them", () => {
+  it("accepts secret/restricted keys in both modes and rejects missing or public keys", () => {
     expect(getStripe()).toBeInstanceOf(Stripe);
-    for (const value of ["", "pk_test_fake", "sk_live_fake"]) {
+    for (const mode of ["test", "live"]) for (const prefix of ["sk", "rk"]) {
+      vi.stubEnv("STRIPE_SECRET_KEY", `${prefix}_${mode}_local_unit_test`);
+      expect(getStripeMode()).toBe(mode);
+      expect(getStripe()).toBeInstanceOf(Stripe);
+    }
+    for (const value of ["", "pk_test_fake", "pk_live_fake"]) {
       vi.stubEnv("STRIPE_SECRET_KEY", value);
-      expect(getStripe).toThrow("test-mode secret or restricted key");
+      expect(getStripe).toThrow("secret or restricted key");
     }
   });
 
@@ -47,9 +52,28 @@ describe("Stripe test-mode setup", () => {
     expect(() => verifyStripeWebhook(payload, wrong)).toThrow();
   });
 
-  it("rejects signed live-mode events", () => {
+  it("rejects signed live-mode events when configured with a test key", () => {
     const payload = JSON.stringify({ id: "evt_live", livemode: true });
     const signature = client.webhooks.generateTestHeaderString({ payload, secret });
-    expect(() => verifyStripeWebhook(payload, signature)).toThrow("Live Stripe events are disabled");
+    expect(() => verifyStripeWebhook(payload, signature)).toThrow("mode does not match");
+  });
+
+  it("verifies live events only in live mode and rejects test events there", () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_local_unit_test");
+    for (const live of [true, false]) {
+      const payload = JSON.stringify({ id: "evt_check", livemode: live });
+      const signature = client.webhooks.generateTestHeaderString({ payload, secret });
+      if (live) expect(verifyStripeWebhook(payload, signature).livemode).toBe(true);
+      else expect(() => verifyStripeWebhook(payload, signature)).toThrow("mode does not match");
+    }
+  });
+
+  it("keeps live checkout unavailable until a webhook secret is configured", () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_local_unit_test");
+    vi.stubEnv("APP_URL", "https://example.com");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "");
+    expect(getShopPaymentMode()).toBeNull();
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", secret);
+    expect(getShopPaymentMode()).toBe("live");
   });
 });

@@ -2,11 +2,14 @@ import Link from "next/link";
 import { requireAdminPage } from "@/lib/admin";
 import { getTestCheckoutStatus } from "@/lib/stripe-test-checkout";
 import { TestCheckoutForm } from "./test-checkout-form";
+import { getShopPaymentMode } from "@/lib/stripe";
+import { redirect } from "next/navigation";
 
 export default async function StripeTestPage({ searchParams }: {
   searchParams: Promise<{ session_id?: string; cancelled?: string }>;
 }) {
   const session = await requireAdminPage();
+  if (getShopPaymentMode() !== "test") redirect("/store/bundles");
   const params = await searchParams;
   let status: "paid" | "pending" | "error" | null = null;
   if (params.session_id) {

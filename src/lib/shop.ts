@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { getStripe, getStripeAppOrigin } from "./stripe";
+import { getStripe, getStripeAppOrigin, getStripeMode, getStripeWebhookSecret } from "./stripe";
 import { getShopProduct, ShopSelectionError } from "./shop-products";
 import { generateShinyPackFromPool } from "./shiny-packs";
 import { creditCoins } from "./coins";
@@ -8,6 +8,8 @@ const PURPOSE = "ns-tcg-shop";
 
 export async function createShopCheckout(userId: string, productId: string, requestedSet: string): Promise<string> {
   const product = getShopProduct(productId);
+  const mode = getStripeMode();
+  if (mode === "live") getStripeWebhookSecret();
   const stripe = getStripe();
   const origin = getStripeAppOrigin();
   let setName: string | null = null;
@@ -37,7 +39,7 @@ export async function createShopCheckout(userId: string, productId: string, requ
     success_url: `${origin}/store/checkout?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/store/bundles?cancelled=1`,
   }, { idempotencyKey: `shop-${purchase.id}` });
-  if (session.livemode || !session.url) throw new Error("Could not create a test checkout.");
+  if (session.livemode !== (mode === "live") || !session.url) throw new Error("Could not create checkout in the configured payment mode.");
   await prisma.shopPurchase.update({ where: { id: purchase.id }, data: { stripeSessionId: session.id } });
   return session.url;
 }
@@ -45,7 +47,8 @@ export async function createShopCheckout(userId: string, productId: string, requ
 // Both the signed webhook and the logged-in return page call this. Stripe
 // is always queried directly; query parameters never prove payment.
 export async function fulfillShopCheckout(sessionId: string, expectedUserId?: string) {
-  if (!/^cs_test_[A-Za-z0-9_]+$/.test(sessionId) || sessionId.length > 255) throw new Error("Invalid checkout session.");
+  const mode = getStripeMode();
+  if (!new RegExp(`^cs_${mode}_[A-Za-z0-9_]+$`).test(sessionId) || sessionId.length > 255) throw new Error("Invalid checkout session.");
   const session = await getStripe().checkout.sessions.retrieve(sessionId, { expand: ["line_items"] });
   if (session.metadata?.purpose !== PURPOSE) return null;
   // Recover if Stripe created the session but a network/process failure
@@ -56,7 +59,7 @@ export async function fulfillShopCheckout(sessionId: string, expectedUserId?: st
   if (!purchase || (expectedUserId && purchase.userId !== expectedUserId)) throw new Error("Purchase not found.");
   const items = session.line_items?.data;
   if ((purchase.stripeSessionId && purchase.stripeSessionId !== sessionId) ||
-      session.livemode || session.mode !== "payment" || session.client_reference_id !== purchase.userId ||
+      session.livemode !== (mode === "live") || session.mode !== "payment" || session.client_reference_id !== purchase.userId ||
       session.metadata.purchaseId !== purchase.id || session.currency !== "gbp" || session.amount_total !== purchase.amountPence ||
       items?.length !== 1 || items[0].quantity !== 1 || items[0].amount_total !== purchase.amountPence) {
     throw new Error("Checkout does not match this purchase.");
