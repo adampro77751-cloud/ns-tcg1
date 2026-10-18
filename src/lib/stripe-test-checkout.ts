@@ -6,7 +6,6 @@ export async function createTestCheckout(userId: string): Promise<string> {
   const origin = getStripeAppOrigin();
   const session = await getStripe().checkout.sessions.create({
     mode: "payment",
-    allowed_payment_method_types: ["card"],
     client_reference_id: userId,
     metadata: { purpose: PURPOSE },
     line_items: [{

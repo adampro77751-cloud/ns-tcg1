@@ -14,12 +14,13 @@ describe("Stripe trial checkout", () => {
     mocks.create.mockResolvedValue({ livemode: false, url: "https://checkout.stripe.com/test" });
     expect(await createTestCheckout("player")).toBe("https://checkout.stripe.com/test");
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
-      mode: "payment", client_reference_id: "player", allowed_payment_method_types: ["card"],
+      mode: "payment", client_reference_id: "player",
       metadata: { purpose: "ns-tcg-test-checkout" },
       line_items: [expect.objectContaining({ quantity: 1, price_data: expect.objectContaining({ currency: "gbp", unit_amount: 100 }) })],
       success_url: "https://example.com/store/stripe-test?session_id={CHECKOUT_SESSION_ID}",
       cancel_url: "https://example.com/store/stripe-test?cancelled=1",
     }));
+    expect(mocks.create.mock.calls[0][0]).not.toHaveProperty("allowed_payment_method_types");
   });
 
   it.each([{ livemode: true, url: "https://checkout.stripe.com/live" }, { livemode: false, url: null }])("refuses unusable checkout sessions", async (session) => {
