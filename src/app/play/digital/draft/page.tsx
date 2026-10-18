@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdminPage } from "@/lib/admin";
+import { requirePlayerPage } from "@/lib/player-access";
 import { prisma } from "@/lib/prisma";
 import { listAvailableSets } from "@/lib/packs";
 import { getCoinBalance } from "@/lib/coins";
@@ -7,7 +7,7 @@ import { DraftEntryForm } from "./draft-forms";
 import { DRAFT_PRIZES } from "@/lib/draft-rewards";
 
 export default async function DraftHomePage() {
-  const session = await requireAdminPage();
+  const session = await requirePlayerPage();
   const [sets, balance, pods] = await Promise.all([
     listAvailableSets(), getCoinBalance(session.user.id),
     prisma.draftPod.findMany({

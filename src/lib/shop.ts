@@ -37,7 +37,7 @@ export async function createShopCheckout(userId: string, productId: string, requ
       product_data: { name: product.name, ...(setName ? { description: `${setName} · ${product.packKind === "SHINY" ? "15" : "10"} cards per pack` } : {}) },
     } }],
     success_url: `${origin}/store/checkout?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${origin}/store/bundles?cancelled=1`,
+    cancel_url: `${origin}/store?cancelled=1`,
   }, { idempotencyKey: `shop-${purchase.id}` });
   if (session.livemode !== (mode === "live") || !session.url) throw new Error("Could not create checkout in the configured payment mode.");
   await prisma.shopPurchase.update({ where: { id: purchase.id }, data: { stripeSessionId: session.id } });

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdminPage } from "@/lib/admin";
+import { requirePlayerPage } from "@/lib/player-access";
 import { getActiveFormats, getDecksWithLegality, getOwnedSpriteOptions } from "@/lib/digital-play";
 import { createBotMatchAction } from "@/lib/actions/digital-match-actions";
 import { BotMatchCreateForm } from "../bot-match-create-form";
@@ -7,7 +7,7 @@ import { BotMatchCreateForm } from "../bot-match-create-form";
 export default async function NewBotMatchPage({
   searchParams,
 }: PageProps<"/play/digital/bot/new">) {
-  const session = await requireAdminPage();
+  const session = await requirePlayerPage();
   const search = await searchParams;
   const formatId = typeof search.formatId === "string" ? search.formatId : null;
 

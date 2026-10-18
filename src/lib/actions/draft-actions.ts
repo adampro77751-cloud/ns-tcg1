@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requireAdminAction } from "@/lib/admin";
+import { requirePlayerAction } from "@/lib/player-access";
 import { prisma } from "@/lib/prisma";
 import { enterDraft, pickCardInDraft, startDraftMatches, advanceDraftAfterMatch } from "@/lib/draft";
 
@@ -20,7 +20,7 @@ function versionFrom(form: FormData): number {
 }
 
 export async function enterDraftAction(_previous: DraftFormState, form: FormData): Promise<DraftFormState> {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   let id: string;
   try {
     id = await enterDraft(session.user.id, String(form.get("setName") ?? ""));
@@ -30,7 +30,7 @@ export async function enterDraftAction(_previous: DraftFormState, form: FormData
 }
 
 export async function pickDraftAction(_previous: DraftFormState, form: FormData): Promise<DraftFormState> {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   const podId = String(form.get("podId") ?? "");
   try {
     const index = form.get("index");
@@ -43,7 +43,7 @@ export async function pickDraftAction(_previous: DraftFormState, form: FormData)
 }
 
 export async function startDraftAction(_previous: DraftFormState, form: FormData): Promise<DraftFormState> {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   const podId = String(form.get("podId") ?? "");
   let matchId: string;
   try {
@@ -58,7 +58,7 @@ export async function startDraftAction(_previous: DraftFormState, form: FormData
 }
 
 export async function resumeDraftAction(_previous: DraftFormState, form: FormData): Promise<DraftFormState> {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   const podId = String(form.get("podId") ?? "");
   try {
     const pod = await prisma.draftPod.findFirst({ where: { id: podId, userId: session.user.id }, select: { id: true } });

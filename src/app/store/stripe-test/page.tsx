@@ -9,7 +9,7 @@ export default async function StripeTestPage({ searchParams }: {
   searchParams: Promise<{ session_id?: string; cancelled?: string }>;
 }) {
   const session = await requireAdminPage();
-  if (getShopPaymentMode() !== "test") redirect("/store/bundles");
+  if (getShopPaymentMode() !== "test") redirect("/store");
   const params = await searchParams;
   let status: "paid" | "pending" | "error" | null = null;
   if (params.session_id) {

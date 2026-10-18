@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { requireAdminPage } from "@/lib/admin";
+import { requirePlayerPage } from "@/lib/player-access";
 import { JoinCodeForm } from "./join-code-form";
 
 export default async function JoinDigitalMatchPage() {
-  await requireAdminPage();
+  await requirePlayerPage();
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-12">

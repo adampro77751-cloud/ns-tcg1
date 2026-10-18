@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireAdminPage } from "@/lib/admin";
+import { requirePlayerPage } from "@/lib/player-access";
 import { prisma } from "@/lib/prisma";
 import { countDraftCards, getDraftStandings, type DraftState } from "@/lib/draft-logic";
 import { DraftPickForm, DraftDeckForm, ResumeDraftForm } from "../draft-forms";
 import { getDraftPrize } from "@/lib/draft-rewards";
 
 export default async function DraftPodPage({ params }: { params: Promise<{ id: string }> }) {
-  const session = await requireAdminPage();
+  const session = await requirePlayerPage();
   const { id } = await params;
   const pod = await prisma.draftPod.findFirst({
     where: { id, userId: session.user.id },

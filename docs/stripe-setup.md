@@ -3,7 +3,7 @@
 The Stripe Node SDK, server configuration helpers and webhook signature
 verification are installed. An admin-only simulated £1 Checkout is available
 at `/store/stripe-test`, linked from the Pack Store. It only accepts test-mode
-keys and grants no Coins, cards or packs. The bundle store at `/store/bundles`
+keys and grants no Coins, cards or packs. The Store at `/store` (`/store/bundles` redirects here)
 supports the configured GBP prices. Test keys allow admin sandbox purchases;
 live keys enable real purchases for logged-in customers once the webhook signing
 secret is configured. The demo checkout is disabled before any API call in live mode.
@@ -68,7 +68,7 @@ physical checkout must be configured before enabling these products.
 
 ## Test purchases
 
-Sign in as admin, choose a bundle and set at `/store/bundles`, then use a test
+Sign in as admin, choose a bundle and set at `/store`, then use a test
 card. Returning to the site retrieves the paid session from Stripe and grants
 the snapshotted purchase. Repeated return visits and duplicate webhooks cannot
    duplicate rewards. Packs can then be opened at `/store/packs`.

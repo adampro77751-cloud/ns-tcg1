@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requireAdminAction } from "@/lib/admin";
+import { requirePlayerAction } from "@/lib/player-access";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { requireOwnedLegalDeck } from "@/lib/decks";
@@ -66,12 +66,12 @@ export async function createBotMatchAction(
   _prevState: DigitalFormState,
   formData: FormData,
 ): Promise<DigitalFormState> {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   const formatId = String(formData.get("formatId") ?? "");
   const deckId = String(formData.get("deckId") ?? "");
   const spriteInstanceIdInput = String(formData.get("spriteInstanceId") ?? "");
   // The bot has no User account of its own, so its "own" deck/Sprite are
-  // just a second choice from the SAME admin tester's collection — real
+  // just a second choice from the SAME player's collection — real
   // saved decks/Sprites via the existing systems, never fabricated ones.
   const botDeckId = String(formData.get("botDeckId") ?? "");
   const botSpriteInstanceIdInput = String(formData.get("botSpriteInstanceId") ?? "");
@@ -191,7 +191,7 @@ export async function createOnlineMatchAction(
   _prevState: DigitalFormState,
   formData: FormData,
 ): Promise<DigitalFormState> {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   const formatId = String(formData.get("formatId") ?? "");
   const deckId = String(formData.get("deckId") ?? "");
   const spriteInstanceIdInput = String(formData.get("spriteInstanceId") ?? "");
@@ -239,7 +239,7 @@ export async function findDigitalMatchByCodeAction(
   _prevState: DigitalFormState,
   formData: FormData,
 ): Promise<DigitalFormState> {
-  await requireAdminAction();
+  await requirePlayerAction();
   const code = normalizeJoinCode(String(formData.get("code") ?? ""));
   if (!code) return { error: "Enter a join code." };
 
@@ -256,7 +256,7 @@ export async function joinOnlineMatchAction(
   _prevState: DigitalFormState,
   formData: FormData,
 ): Promise<DigitalFormState> {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   const matchId = String(formData.get("matchId") ?? "");
   const deckId = String(formData.get("deckId") ?? "");
   const spriteInstanceIdInput = String(formData.get("spriteInstanceId") ?? "");
@@ -302,13 +302,14 @@ export async function joinOnlineMatchAction(
 }
 
 export async function readyDigitalMatchAction(formData: FormData) {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   const matchId = String(formData.get("matchId") ?? "");
 
-  await prisma.digitalMatchPlayer.updateMany({
-    where: { matchId, userId: session.user.id },
+  const ready = await prisma.digitalMatchPlayer.updateMany({
+    where: { matchId, userId: session.user.id, match: { status: "READY", mode: "ONLINE" } },
     data: { ready: true },
   });
+  if (!ready.count) throw new IllegalActionError("You cannot ready this match.");
 
   await maybeStartMatch(matchId);
   revalidatePath(`/play/digital/${matchId}`);
@@ -518,7 +519,7 @@ async function runBotIfNeeded(
 const MAX_BOT_ACTIONS_PER_TICK = 4;
 
 export async function advanceBotTurnAction(matchId: string) {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   const match = await loadMatchForAction(matchId, session.user.id);
   if (match.botIndex === null) return;
 
@@ -570,7 +571,7 @@ export type SearchableDeckCard = {
 // uses — or every card type when the result is headed to hand instead,
 // e.g. Budge without 3+ Spells in discard).
 export async function getSearchableDeckItemsAction(matchId: string, instanceId: string): Promise<SearchableDeckCard[]> {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   const match = await loadMatchForAction(matchId, session.user.id);
 
   const player = match.state.players[match.playerIndex];
@@ -619,7 +620,7 @@ async function runGameAction(
     spritesById: Map<string, SpriteEngineData>,
   ) => DigitalGameState,
 ) {
-  const session = await requireAdminAction();
+  const session = await requirePlayerAction();
   const match = await loadMatchForAction(matchId, session.user.id);
   const cardsById = await loadCardsById(match.state);
   const spritesById = await loadSpritesById(match.state);

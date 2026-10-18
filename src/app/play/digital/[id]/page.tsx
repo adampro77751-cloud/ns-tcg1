@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { requireAdminPage } from "@/lib/admin";
+import { requirePlayerPage } from "@/lib/player-access";
 import { prisma } from "@/lib/prisma";
 import {
   getDecksWithLegality,
@@ -21,7 +21,7 @@ import { Battlefield } from "./battlefield";
 import { getMatchWinCoinAward } from "@/lib/match-rewards";
 
 export default async function DigitalMatchPage({ params }: PageProps<"/play/digital/[id]">) {
-  const session = await requireAdminPage();
+  const session = await requirePlayerPage();
   const { id } = await params;
 
   const match = await prisma.digitalMatch.findUnique({

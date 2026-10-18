@@ -11,10 +11,12 @@ export function PackStoreClient({
   sets,
   coinBalance,
   earnedPacks,
+  showPurchases = true,
 }: {
   sets: SetSummary[];
   coinBalance: number;
   earnedPacks: { id: string; setName: string; packKind: string; purchaseId: string | null }[];
+  showPurchases?: boolean;
 }) {
   const router = useRouter();
   const [buyingSet, setBuyingSet] = useState<string | null>(null);
@@ -57,7 +59,9 @@ export function PackStoreClient({
         </li>)}</ul>
       </section>}
 
-      {sets.length === 0 ? (
+      {!showPurchases && earnedPacks.length === 0 && <p className="mt-8 text-sm text-slate-500">You have no unopened packs yet. Buy a bundle in the Store or earn packs by drafting.</p>}
+
+      {showPurchases && (sets.length === 0 ? (
         <p className="mt-8 text-sm text-slate-500">No sets are available to open packs from yet.</p>
       ) : (
         <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -108,7 +112,7 @@ export function PackStoreClient({
             );
           })}
         </div>
-      )}
+      ))}
 
       {reveal && <PackRevealModal setName={reveal.setName} cards={reveal.result.cards} sprite={reveal.result.sprite} onClose={closeReveal} />}
     </div>

@@ -29,12 +29,12 @@ export function NavLinks({
         onClick={() => setOpen((o) => !o)}
         aria-label="Toggle navigation menu"
         aria-expanded={open}
-        className="flex h-9 w-9 items-center justify-center rounded border border-sky-300 text-lg text-slate-600 hover:bg-sky-50 sm:hidden"
+        className="flex h-9 w-9 items-center justify-center rounded border border-sky-300 text-lg text-slate-600 hover:bg-sky-50 xl:hidden"
       >
         {open ? "✕" : "☰"}
       </button>
 
-      <nav className="hidden items-center gap-5 text-sm text-slate-600 sm:flex">
+      <nav className="hidden items-center gap-4 whitespace-nowrap text-sm text-slate-600 xl:flex">
         {allLinks.map((link) => (
           <Link key={link.href} href={link.href} className="hover:text-blue-600">
             {link.label}
@@ -43,7 +43,7 @@ export function NavLinks({
       </nav>
 
       {open && (
-        <nav className="absolute inset-x-0 top-full z-40 flex flex-col gap-1 border-b border-sky-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-md sm:hidden">
+        <nav className="absolute inset-x-0 top-full z-40 flex flex-col gap-1 border-b border-sky-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-md xl:hidden">
           {allLinks.map((link) => (
             <Link
               key={link.href}

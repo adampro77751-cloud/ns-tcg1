@@ -22,7 +22,7 @@ export default async function CheckoutResultPage({ searchParams }: { searchParam
       </> : <><p className="mt-4 text-sm">{purchase ? "Your payment is still processing. Items will be added once Stripe confirms payment." : "Refresh to check again. If you completed payment, Stripe’s confirmation will add your items automatically. Contact support if they do not arrive."}</p>
         {purchase && <AutoRefresh intervalMs={5000} />}</>}
       <a href="/store/packs" className="mt-6 inline-block rounded-full bg-violet-600 px-5 py-2 font-bold text-white">Go to Pack Store</a>
-      <Link href="/store/bundles" className="ml-4 text-sm text-violet-700 underline">Back to bundles</Link>
+      <Link href="/store" className="ml-4 text-sm text-violet-700 underline">Back to Store</Link>
     </div>
   </div>;
 }

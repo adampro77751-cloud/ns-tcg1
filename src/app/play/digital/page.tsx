@@ -2,17 +2,13 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
-// Anyone can VIEW this page (so the beta isn't invisible to normal
-// players) but only ADMIN accounts get working links — the actual access
-// boundary is enforced server-side on every route/action underneath this
-// page (requireAdminPage/requireAdminAction), never here. A non-admin
-// manually navigating to e.g. /play/digital/bot/new is still redirected
-// away there, regardless of what this page renders.
+// The lobby is public; playing requires login. Routes and actions also
+// validate ownership and match participation before granting access.
 export default async function DigitalPlayHomePage() {
   const session = await auth();
-  const isAdmin = session?.user?.role === "ADMIN";
+  const canPlay = !!session?.user;
 
-  const myMatches = isAdmin
+  const myMatches = canPlay
     ? await prisma.digitalMatch.findMany({
         where: {
           status: { in: ["WAITING", "READY", "IN_PROGRESS"] },
@@ -33,28 +29,23 @@ export default async function DigitalPlayHomePage() {
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
       <div className="flex items-center gap-2">
         <h1 className="text-3xl font-bold tracking-tight">NS TCG Digital Play</h1>
-        <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-violet-700">
-          Beta
-        </span>
       </div>
       <p className="mt-2 text-sm text-slate-500">
-        {isAdmin
-          ? "Private beta — admin accounts only. Play against another admin online, or against the V1 rules-based bot."
-          : "Digital Play is currently in private beta, open to admin accounts only. Everyone will be able to play once the beta opens up."}
+        Play online with another player, challenge the bot, or draft a new deck. Sign in to start playing.
       </p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-violet-50 p-6 sm:col-span-2">
           <h2 className="text-lg font-bold">Bot Draft · 2,000 Coins</h2>
           <p className="mt-1 text-sm text-slate-600">Join a pod of six. Draft with five bots, keep your picks, and play five automatically paired rounds.</p>
-          {isAdmin ? <Link href="/play/digital/draft" className="mt-4 inline-block rounded-full bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700">Draft & play</Link> : <LockedNotice />}
+          {canPlay ? <Link href="/play/digital/draft" className="mt-4 inline-block rounded-full bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700">Draft & play</Link> : <LoginNotice />}
         </div>
         <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-white to-sky-50 p-6">
           <h2 className="text-lg font-bold">Play Online</h2>
           <p className="mt-1 text-sm text-slate-600">
             Play against another player using a match code.
           </p>
-          {isAdmin ? (
+          {canPlay ? (
             <div className="mt-4 flex flex-col gap-2">
               <Link
                 href="/play/digital/online/new"
@@ -70,7 +61,7 @@ export default async function DigitalPlayHomePage() {
               </Link>
             </div>
           ) : (
-            <LockedNotice />
+            <LoginNotice />
           )}
         </div>
 
@@ -79,7 +70,7 @@ export default async function DigitalPlayHomePage() {
           <p className="mt-1 text-sm text-slate-600">
             Play against a computer-controlled opponent.
           </p>
-          {isAdmin ? (
+          {canPlay ? (
             <div className="mt-4">
               <Link
                 href="/play/digital/bot/new"
@@ -89,7 +80,7 @@ export default async function DigitalPlayHomePage() {
               </Link>
             </div>
           ) : (
-            <LockedNotice />
+            <LoginNotice />
           )}
         </div>
       </div>
@@ -120,10 +111,8 @@ export default async function DigitalPlayHomePage() {
   );
 }
 
-function LockedNotice() {
+function LoginNotice() {
   return (
-    <div className="mt-4 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-center text-sm font-semibold text-slate-400">
-      🔒 Private Beta — Admin only
-    </div>
+    <Link href="/login" className="mt-4 block rounded-full border border-violet-300 px-4 py-2 text-center text-sm font-semibold text-violet-700">Sign in to play</Link>
   );
 }

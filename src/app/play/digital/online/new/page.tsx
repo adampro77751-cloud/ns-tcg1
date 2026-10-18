@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdminPage } from "@/lib/admin";
+import { requirePlayerPage } from "@/lib/player-access";
 import { getActiveFormats, getDecksWithLegality, getOwnedSpriteOptions } from "@/lib/digital-play";
 import { createOnlineMatchAction } from "@/lib/actions/digital-match-actions";
 import { DigitalSetupForm } from "../../digital-setup-form";
@@ -7,7 +7,7 @@ import { DigitalSetupForm } from "../../digital-setup-form";
 export default async function NewOnlineMatchPage({
   searchParams,
 }: PageProps<"/play/digital/online/new">) {
-  const session = await requireAdminPage();
+  const session = await requirePlayerPage();
   const search = await searchParams;
   const formatId = typeof search.formatId === "string" ? search.formatId : null;
 

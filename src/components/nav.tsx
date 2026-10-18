@@ -6,9 +6,11 @@ import { CoinBalance } from "./coin-balance";
 
 const links = [
   { href: "/play", label: "Play" },
+  { href: "/play/digital", label: "Digital Play" },
   { href: "/decks", label: "Decks" },
   { href: "/collection", label: "Collection" },
-  { href: "/store/packs", label: "Packs" },
+  { href: "/store/packs", label: "Your Packs" },
+  { href: "/store", label: "Store" },
   { href: "/sprites", label: "Sprites" },
   { href: "/metagame", label: "Metagame" },
   { href: "/players", label: "Players" },
@@ -20,7 +22,7 @@ export async function Nav() {
 
   return (
     <header className="relative border-b border-sky-200 bg-white">
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
         <div className="flex items-center gap-8">
           <Link href="/" className="text-lg font-bold tracking-tight text-blue-700">
             NS TCG
