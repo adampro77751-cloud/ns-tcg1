@@ -3,6 +3,7 @@ import { getDeckLegality } from "@/lib/decks";
 import { getDeckCollectionErrors } from "@/lib/deck-collection";
 import type { EngineCard } from "@/lib/digital-engine/types";
 import type { SpriteEngineData } from "@/lib/digital-engine/sprite-abilities";
+import { getSpriteInstanceArt } from "@/lib/card-styles";
 
 export function getActiveFormats() {
   return prisma.format.findMany({
@@ -122,6 +123,8 @@ export async function getSpriteDisplayMap(spriteInstanceIds: Iterable<string | n
     where: { id: { in: idList } },
     select: {
       id: true,
+      ownerId: true,
+      spriteId: true,
       name: true,
       level: true,
       sprite: {
@@ -139,6 +142,7 @@ export async function getSpriteDisplayMap(spriteInstanceIds: Iterable<string | n
       },
     },
   });
+  const art = await getSpriteInstanceArt(instances);
   return new Map(
     instances.map((s) => [
       s.id,
@@ -148,7 +152,7 @@ export async function getSpriteDisplayMap(spriteInstanceIds: Iterable<string | n
         level: s.level,
         slug: s.sprite.slug,
         spriteName: s.sprite.name,
-        image: s.sprite.image,
+        image: art.get(s.id) ?? s.sprite.image,
         rarity: s.sprite.rarity,
         abilityTextByLevel: [
           s.sprite.level1Ability,

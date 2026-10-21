@@ -11,7 +11,7 @@ import {
   type LegalAction,
 } from "./engine";
 import { getRequiredTarget } from "./abilities";
-import type { DigitalGameState, EngineCard } from "./types";
+import { IllegalActionError, type DigitalGameState, type EngineCard, type CardInstance } from "./types";
 import type { SpriteEngineData } from "./sprite-abilities";
 
 // Looks up the real card behind a hand/discard instanceId (Art can make a
@@ -65,8 +65,79 @@ function chooseBotTarget(
     return itemInstanceIds.length > 0 ? `item:${itemInstanceIds[Math.floor(random() * itemInstanceIds.length)]}` : undefined;
   }
   if (itemInstanceIds.length === 0) return undefined;
+  if ((state.botDifficulty ?? 0) >= 2) {
+    // Buffs go to our best legal unit; removal/copy effects prefer enemy
+    // threats. Only visible battlefield cards enter this evaluation.
+    const opponents = state.players[(1 - playerIndex) as 0 | 1].battlefield;
+    const own = state.players[playerIndex].battlefield;
+    const candidates = itemInstanceIds.map(id => opponents.find(item => item.instanceId === id) ?? own.find(item => item.instanceId === id)!).filter(Boolean);
+    const enemyCandidates = candidates.filter(item => opponents.includes(item));
+    const preferred = requirement.kind === "ITEM" && requirement.scope === "OWN_ITEM" ? candidates : enemyCandidates.length ? enemyCandidates : candidates;
+    preferred.sort((a, b) => botCardValue(b, cardsById) - botCardValue(a, cardsById));
+    if (preferred[0]) return `item:${preferred[0].instanceId}`;
+  }
   return `item:${itemInstanceIds[Math.floor(random() * itemInstanceIds.length)]}`;
 }
+
+function botCardValue(instance: CardInstance, cards: Map<string, EngineCard>) {
+  const card = cards.get(instance.cardId);
+  return (card?.attack ?? 0) + instance.buffs.attack + ((card?.defence ?? 0) + instance.buffs.defence) * 0.6 + ((card?.speed ?? 0) + instance.buffs.speed) * 0.4;
+}
+
+function visiblePositionValue(state: DigitalGameState, playerIndex: 0 | 1, cards: Map<string, EngineCard>) {
+  if (state.phase === "COMPLETE") return state.winnerIndex === playerIndex ? 1_000_000 : state.winnerIndex === null ? 0 : -1_000_000;
+  const own = state.players[playerIndex];
+  const enemy = state.players[(1 - playerIndex) as 0 | 1];
+  // No opponent hand or deck identities are inspected.
+  return (own.health - enemy.health) * 3 + own.battlefield.reduce((sum, item) => sum + botCardValue(item, cards), 0)
+    - enemy.battlefield.reduce((sum, item) => sum + botCardValue(item, cards), 0) + own.hand.length * 12;
+}
+
+export const rankedRulesBot: BotDecisionProvider = {
+  chooseAction(state, playerIndex, actions, cards) {
+    const difficulty = state.botDifficulty ?? 0;
+    if (difficulty === 0) return simpleRulesBot.chooseAction(state, playerIndex, actions, cards);
+    const sprites = new Map<string, SpriteEngineData>(); // Ranked draft has no Sprites.
+    const baseline = visiblePositionValue(state, playerIndex, cards);
+    const score = (action: LegalAction): number => {
+      if (action.type === "END_TURN") return 0;
+      if (action.type !== "PLAY_ITEM" && action.type !== "PLAY_SPELL" && action.type !== "ATTACK") return -1;
+      const instance = [...state.players[playerIndex].hand, ...state.players[playerIndex].discard, ...state.players[playerIndex].battlefield].find(card => card.instanceId === action.instanceId);
+      if (!instance) return -1;
+      const value = botCardValue(instance, cards);
+      if (difficulty < 3) return (action.type === "PLAY_ITEM" ? 10000 : action.type === "PLAY_SPELL" ? 5000 : 1000) + value;
+      try {
+        if (action.type === "ATTACK") {
+          const next = declareAttack(state, playerIndex, action.instanceId, cards, sprites);
+          if (next.phase === "COMPLETE") return next.winnerIndex === playerIndex ? 1_000_000 : -1_000_000;
+          if (!next.pendingCombat) return visiblePositionValue(next, playerIndex, cards) - baseline + 1;
+          const defender = chooseBotDefender(next, cards, sprites);
+          const damage = previewDefenseDamage(next, cards, sprites, defender);
+          if (damage >= next.players[(1 - playerIndex) as 0 | 1].health) return 1_000_000;
+          if (difficulty === 3) return 1000 + damage;
+          const resolved = resolveDefense(next, (1 - playerIndex) as 0 | 1, defender, cards, sprites);
+          return visiblePositionValue(resolved, playerIndex, cards) - baseline + 1;
+        }
+        if (difficulty === 3) return (action.type === "PLAY_ITEM" ? 10000 : 5000) + value;
+        const target = chooseBotTarget(state, playerIndex, action.instanceId, cards, () => 0);
+        const next = action.type === "PLAY_ITEM"
+          ? playItem(state, playerIndex, action.instanceId, cards, target, sprites)
+          : playSpell(state, playerIndex, action.instanceId, cards, target, sprites);
+        return visiblePositionValue(next, playerIndex, cards) - baseline + 1;
+      } catch (error) {
+        if (!(error instanceof IllegalActionError)) throw error;
+        return -1;
+      }
+    };
+    let best: LegalAction = { type: "END_TURN" };
+    let bestScore = 0;
+    for (const action of actions) {
+      const value = score(action);
+      if (value > bestScore) { best = action; bestScore = value; }
+    }
+    return best;
+  },
+};
 
 // Pluggable so a future LLM/API-backed bot can be dropped in without
 // touching the engine or the turn-driving loop below — it only needs to
@@ -185,7 +256,7 @@ export function runBotStep(
   playerIndex: 0 | 1,
   cardsById: Map<string, EngineCard>,
   spritesById: Map<string, SpriteEngineData> = new Map(),
-  provider: BotDecisionProvider = simpleRulesBot,
+  provider: BotDecisionProvider = state.botDifficulty === undefined ? simpleRulesBot : rankedRulesBot,
   random: () => number = Math.random,
 ): DigitalGameState {
   if (state.phase === "COMPLETE" || state.activePlayerIndex !== playerIndex || state.pendingCombat) {
@@ -236,7 +307,7 @@ export function runBotTurn(
   playerIndex: 0 | 1,
   cardsById: Map<string, EngineCard>,
   spritesById: Map<string, SpriteEngineData> = new Map(),
-  provider: BotDecisionProvider = simpleRulesBot,
+  provider: BotDecisionProvider = initialState.botDifficulty === undefined ? simpleRulesBot : rankedRulesBot,
   random: () => number = Math.random,
 ): DigitalGameState {
   let state = initialState;

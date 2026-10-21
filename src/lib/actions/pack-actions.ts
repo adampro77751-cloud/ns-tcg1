@@ -4,6 +4,15 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { buyAndOpenPack, openEarnedPack, type PackOpeningResult } from "@/lib/packs";
 import { InsufficientCoinsError } from "@/lib/coins";
+import { buyHalloweenPack } from "@/lib/halloween-packs";
+
+export async function buyHalloweenPackAction(formData: FormData): Promise<PackOpeningResult> {
+  const session = await auth();
+  if (!session?.user) throw new Error("You must be logged in.");
+  const result = await buyHalloweenPack(session.user.id, String(formData.get("requestKey") ?? ""));
+  revalidatePath("/", "layout");
+  return result;
+}
 
 // Called directly from the client store component (not a useActionState
 // form — the caller needs the full pack-opening result, cards and all, to

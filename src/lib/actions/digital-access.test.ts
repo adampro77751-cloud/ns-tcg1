@@ -28,7 +28,18 @@ describe("digital actions for regular players", () => {
     mocks.enterDraft.mockResolvedValue("pod");
     const form = new FormData(); form.set("setName", "1st Edition");
     await expect(enterDraftAction({ error: null }, form)).rejects.toThrow("redirect:/play/digital/draft/pod");
-    expect(mocks.enterDraft).toHaveBeenCalledWith("player", "1st Edition");
+    expect(mocks.enterDraft).toHaveBeenCalledWith("player", "1st Edition", false);
+  });
+
+  it("passes ranked mode to the draft service and rejects unknown modes", async () => {
+    mocks.enterDraft.mockResolvedValue("ranked-pod");
+    const form = new FormData(); form.set("setName", "1st Edition"); form.set("mode", "ranked");
+    await expect(enterDraftAction({ error: null }, form)).rejects.toThrow("redirect:/play/digital/draft/ranked-pod");
+    expect(mocks.enterDraft).toHaveBeenCalledWith("player", "1st Edition", true);
+    mocks.enterDraft.mockClear();
+    form.set("mode", "diamond");
+    expect((await enterDraftAction({ error: null }, form)).error).toContain("Choose casual or ranked");
+    expect(mocks.enterDraft).not.toHaveBeenCalled();
   });
 
   it("does not let a player concede someone else's game", async () => {

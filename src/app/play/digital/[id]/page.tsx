@@ -20,6 +20,7 @@ import { DigitalCreateForm } from "../digital-create-form";
 import { Battlefield } from "./battlefield";
 import { getMatchWinCoinAward } from "@/lib/match-rewards";
 import { getVisibleInstanceArt } from "@/lib/card-styles";
+import { DRAFT_RANKS } from "@/lib/draft-rank";
 
 export default async function DigitalMatchPage({ params }: PageProps<"/play/digital/[id]">) {
   const session = await requirePlayerPage();
@@ -187,7 +188,7 @@ export default async function DigitalMatchPage({ params }: PageProps<"/play/digi
 
   const opponentUsername =
     match.players.find((p) => p.userId !== session.user.id)?.user?.username ??
-    (match.players.find((p) => p.isBot) ? (match.draftOpponentSeat ? `Bot ${match.draftOpponentSeat}` : "Bot") : "Opponent");
+    (match.players.find((p) => p.isBot) ? (match.draftOpponentSeat ? `${state.botDifficulty === undefined ? "" : `${DRAFT_RANKS[state.botDifficulty]?.name ?? "Ranked"} `}Bot ${match.draftOpponentSeat}` : "Bot") : "Opponent");
 
   const spritesById = await getSpriteDisplayMap([
     visible.players[0].spriteInstanceId,

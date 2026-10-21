@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  match: vi.fn(), pod: vi.fn(), save: vi.fn(), reward: vi.fn(), packs: vi.fn(), credit: vi.fn(), transaction: vi.fn(),
+  match: vi.fn(), pod: vi.fn(), save: vi.fn(), reward: vi.fn(), packs: vi.fn(), credit: vi.fn(), transaction: vi.fn(), rank: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: {
   digitalMatch: { findUnique: mocks.match }, $transaction: mocks.transaction,
@@ -20,7 +20,7 @@ describe("draft completion payouts", () => {
       .map((seats) => ({ round, seats, winner: Math.min(...seats) }))).flat();
     mocks.pod.mockResolvedValue({ id: "pod", userId: "player", setName: "Draft Set", version: 5, status: "PLAYING", state: { results } });
     mocks.save.mockResolvedValue({ count: 1 });
-    const tx = { draftPod: { findUniqueOrThrow: mocks.pod, updateMany: mocks.save, update: mocks.reward }, earnedPack: { createMany: mocks.packs } };
+    const tx = { draftPod: { findUniqueOrThrow: mocks.pod, updateMany: mocks.save, update: mocks.reward }, earnedPack: { createMany: mocks.packs }, user: { update: mocks.rank } };
     mocks.transaction.mockImplementation((callback) => callback(tx));
   });
 
@@ -33,6 +33,26 @@ describe("draft completion payouts", () => {
     await advanceDraftAfterMatch("final-match");
     expect(mocks.credit).toHaveBeenCalledTimes(1);
     expect(mocks.packs).toHaveBeenCalledTimes(1);
+    expect(mocks.rank).not.toHaveBeenCalled();
+  });
+
+  it("updates ranked points once alongside completion and prizes", async () => {
+    const pod = await mocks.pod();
+    mocks.pod.mockResolvedValue({ ...pod, ranked: true, rankPointsBefore: 190 });
+    await advanceDraftAfterMatch("final-match");
+    expect(mocks.rank).toHaveBeenCalledWith({ where: { id: "player" }, data: { draftRankPoints: 490 } });
+    expect(mocks.reward).toHaveBeenCalledWith({ where: { id: "pod" }, data: { rankPointsAfter: 490 } });
+    mocks.pod.mockResolvedValue({ status: "COMPLETED" });
+    await advanceDraftAfterMatch("final-match");
+    expect(mocks.rank).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not update rank if another request wins the completion claim", async () => {
+    const pod = await mocks.pod();
+    mocks.pod.mockResolvedValue({ ...pod, ranked: true, rankPointsBefore: 190 });
+    mocks.save.mockResolvedValue({ count: 0 });
+    await advanceDraftAfterMatch("final-match");
+    expect(mocks.rank).not.toHaveBeenCalled();
   });
 
   it("does not award a second payout when another request wins the version claim", async () => {

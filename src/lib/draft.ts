@@ -9,6 +9,7 @@ import { generateJoinCode } from "@/lib/join-code";
 import { createGameState } from "@/lib/digital-engine/engine";
 import type { DigitalGameState, EngineCard } from "@/lib/digital-engine/types";
 import { simulateDraftBots } from "@/lib/draft-simulation";
+import { getDraftRank, getDraftRankResult } from "@/lib/draft-rank";
 import {
   createDraftState, pickDraftCard, buildBotDraftDeck, validateDraftDeck,
   countDraftCards, getDraftPairings, DRAFT_PACKS, DRAFT_SEATS,
@@ -46,7 +47,7 @@ async function loadDraftCards(tx: Tx, state: DraftState) {
   return new Map(cards.map((card) => [card.id, card]));
 }
 
-export async function enterDraft(userId: string, setName: string): Promise<string> {
+export async function enterDraft(userId: string, setName: string, ranked = false): Promise<string> {
   const active = await prisma.draftPod.findUnique({ where: { activeUserId: userId }, select: { id: true } });
   if (active) return active.id;
 
@@ -62,8 +63,10 @@ export async function enterDraft(userId: string, setName: string): Promise<strin
   const state = createDraftState(packs);
   try {
     return await prisma.$transaction(async (tx) => {
+      const player = ranked ? await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { draftRankPoints: true } }) : null;
+      if (player) state.botDifficulty = getDraftRank(player.draftRankPoints).difficulty;
       const pod = await tx.draftPod.create({
-        data: { userId, activeUserId: userId, setName, state: jsonState(state) }, select: { id: true },
+        data: { userId, activeUserId: userId, setName, ranked, rankPointsBefore: player?.draftRankPoints, state: jsonState(state) }, select: { id: true },
       });
       await debitCoins(tx, userId, DRAFT_ENTRY_COST, "DRAFT_ENTRY", { draftPodId: pod.id, setName });
       return pod.id;
@@ -95,7 +98,7 @@ export async function pickCardInDraft(userId: string, podId: string, version: nu
 
 function simulateOtherPairings(state: DraftState, round: number, cards: Map<string, EngineCard>) {
   for (const seats of getDraftPairings(round).filter((pair) => !pair.includes(0))) {
-    const winner = simulateDraftBots([state.decks[seats[0]], state.decks[seats[1]]], cards);
+    const winner = simulateDraftBots([state.decks[seats[0]], state.decks[seats[1]]], cards, state.botDifficulty);
     state.results.push({ round, seats, winner: winner === null ? null : seats[winner] });
   }
 }
@@ -133,6 +136,7 @@ async function createRoundMatch(tx: Tx, podId: string, userId: string, state: Dr
       { userId: null, spriteInstanceId: null, cardIds: state.decks[opponent] },
     ],
   });
+  if (state.botDifficulty !== undefined) game.botDifficulty = state.botDifficulty;
   await tx.digitalMatch.update({ where: { id: match.id }, data: { state: game as unknown as Prisma.InputJsonValue } });
   return match.id;
 }
@@ -145,7 +149,7 @@ export async function startDraftMatches(userId: string, podId: string, version: 
     validateDraftDeck(state.pools[0], deck);
     const cards = await loadDraftCards(tx, state);
     state.decks[0] = deck;
-    for (let seat = 1; seat < DRAFT_SEATS; seat++) state.decks[seat] = buildBotDraftDeck(state.pools[seat], cards, seat);
+    for (let seat = 1; seat < DRAFT_SEATS; seat++) state.decks[seat] = buildBotDraftDeck(state.pools[seat], cards, seat, state.botDifficulty);
     simulateOtherPairings(state, 0, cards);
     await savePod(tx, pod, state, "PLAYING");
     return createRoundMatch(tx, pod.id, userId, state, 0, cards);
@@ -177,6 +181,11 @@ export async function advanceDraftAfterMatch(matchId: string) {
     if (!finished) simulateOtherPairings(state, round + 1, cards);
     await savePod(tx, pod, state, finished ? "COMPLETED" : "PLAYING");
     if (finished) {
+      if (pod.ranked && pod.rankPointsBefore !== null) {
+        const rank = getDraftRankResult(pod.rankPointsBefore, state.results);
+        await tx.user.update({ where: { id: pod.userId }, data: { draftRankPoints: rank.after } });
+        await tx.draftPod.update({ where: { id: pod.id }, data: { rankPointsAfter: rank.after } });
+      }
       const prize = getDraftPrize(state.results);
       await tx.draftPod.update({ where: { id: pod.id }, data: { reward: prize } });
       await creditCoins(tx, pod.userId, prize.coins, "DRAFT_REWARD", { draftPodId: pod.id, ...prize });

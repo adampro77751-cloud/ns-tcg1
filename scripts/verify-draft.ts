@@ -8,21 +8,23 @@ import { enterDraft, pickCardInDraft, startDraftMatches, advanceDraftAfterMatch 
 import { concede } from '../src/lib/digital-engine/engine';
 import type { DigitalGameState } from '../src/lib/digital-engine/types';
 import type { DraftState } from '../src/lib/draft-logic';
+import { getDraftPrize } from '../src/lib/draft-rewards';
 import type { Prisma } from '../src/generated/prisma/client';
 
 let userId: string | undefined;
+const ranked = process.argv.includes("--ranked");
 async function main() {
   const suffix = randomUUID();
   const user = await prisma.user.create({ data: {
-    username: `draft-test-${suffix}`, email: `draft-test-${suffix}@example.invalid`, passwordHash: 'no-login-test-account',
+    username: `draft-test-${suffix}`, email: `draft-test-${suffix}@example.invalid`, passwordHash: 'no-login-test-account', draftRankPoints: 500,
   }, select: { id: true } });
   userId = user.id;
   const cards = await prisma.card.findMany({ where: { set: { not: null }, type: 'Item' }, select: { set: true }, take: 1 });
   assert(cards[0]?.set, 'Need a seeded set');
-  await assert.rejects(enterDraft(user.id, cards[0].set), /Not enough Coins/);
+  await assert.rejects(enterDraft(user.id, cards[0].set, ranked), /Not enough Coins/);
   assert.equal(await prisma.draftPod.count({ where: { userId: user.id } }), 0);
   await prisma.$transaction((tx) => creditCoins(tx, user.id, 5000, 'ADMIN_GRANT', { reason: 'Temporary draft verification' }));
-  const entries = await Promise.all([enterDraft(user.id, cards[0].set), enterDraft(user.id, cards[0].set)]);
+  const entries = await Promise.all([enterDraft(user.id, cards[0].set, ranked), enterDraft(user.id, cards[0].set, ranked)]);
   assert.equal(entries[0], entries[1]);
   const podId = entries[0];
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).coinBalance, 3000);
@@ -37,6 +39,9 @@ async function main() {
   const pod = await prisma.draftPod.findUniqueOrThrow({ where: { id: podId } });
   assert.equal(pod.status, 'BUILDING');
   const state = pod.state as unknown as DraftState;
+  assert.equal(pod.ranked, ranked);
+  assert.equal(pod.rankPointsBefore, ranked ? 500 : null);
+  assert.equal(state.botDifficulty, ranked ? 2 : undefined);
   assert.equal(state.pools[0].length, 30);
   const copies = await prisma.userCard.aggregate({ where: { userId: user.id }, _sum: { quantity: true } });
   assert.equal(copies._sum.quantity, 30);
@@ -46,6 +51,7 @@ async function main() {
   for (let round = 0; round < 5; round++) {
     const match = await prisma.digitalMatch.findFirstOrThrow({ where: { draftPodId: podId, draftRound: round }, include: { players: { include: { deckSnapshot: true } } } });
     assert.equal(match.status, 'IN_PROGRESS');
+    assert.equal((match.state as unknown as DigitalGameState).botDifficulty, ranked ? 2 : undefined);
     assert.equal(match.players.length, 2);
     for (const player of match.players) assert.equal(player.deckSnapshot.reduce((sum, card) => sum + card.quantity, 0), 20);
     opponents.add(match.draftOpponentSeat!);
@@ -57,12 +63,17 @@ async function main() {
   const complete = await prisma.draftPod.findUniqueOrThrow({ where: { id: podId } });
   assert.equal(complete.status, 'COMPLETED');
   assert.equal(complete.activeUserId, null);
+  assert.equal(complete.rankPointsAfter, ranked ? 350 : null);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).draftRankPoints, ranked ? 350 : 500);
   assert.equal((complete.state as unknown as DraftState).results.length, 15);
   assert.equal(opponents.size, 5);
   assert.equal(await prisma.digitalMatch.count({ where: { draftPodId: podId } }), 5);
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).coinBalance, 3000);
+  const prize = getDraftPrize((complete.state as unknown as DraftState).results);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).coinBalance, 3000 + prize.coins);
+  assert.equal(await prisma.coinTransaction.count({ where: { userId: user.id, type: 'DRAFT_REWARD' } }), 1);
   assert.equal((await prisma.userCard.aggregate({ where: { userId: user.id }, _sum: { quantity: true } }))._sum.quantity, 30);
   console.log('PASS: insufficient funds rollback, single 2,000-coin entry under concurrent requests, private pod ownership, duplicate-pick protection, 30 kept cards, draft-only deck validation, 5 automatic matches, 15 results, idempotent advancement.');
+  console.log(ranked ? 'PASS: Gold difficulty fixed across all rounds, rank demotion applied exactly once.' : 'PASS: casual draft leaves ranked points unchanged.');
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => {

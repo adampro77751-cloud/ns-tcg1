@@ -23,7 +23,9 @@ export async function enterDraftAction(_previous: DraftFormState, form: FormData
   const session = await requirePlayerAction();
   let id: string;
   try {
-    id = await enterDraft(session.user.id, String(form.get("setName") ?? ""));
+    const mode = String(form.get("mode") ?? "casual");
+    if (mode !== "ranked" && mode !== "casual") throw new Error("Choose casual or ranked draft.");
+    id = await enterDraft(session.user.id, String(form.get("setName") ?? ""), mode === "ranked");
   } catch (error) { return errorState(error); }
   revalidatePath("/", "layout");
   redirect(`/play/digital/draft/${id}`);

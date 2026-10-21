@@ -6,6 +6,8 @@ import { getShopPaymentMode } from "@/lib/stripe";
 import { PackStoreClient } from "./packs/pack-store-client";
 import { getCoinBalance } from "@/lib/coins";
 import { PACK_COST, SHINY_PACK_COST } from "@/lib/economy-constants";
+import { HalloweenPackStore } from "./halloween-pack-store";
+import { isHalloweenPackAvailable } from "@/lib/card-style-catalog";
 
 export default async function StorePage({ searchParams }: { searchParams: Promise<{ cancelled?: string }> }) {
   const [session, sets, params] = await Promise.all([auth(), listAvailableSets(), searchParams]);
@@ -24,7 +26,9 @@ export default async function StorePage({ searchParams }: { searchParams: Promis
       ? "Sandbox preview: admin test purchases only. No real money is charged. Test purchases add items to your account."
       : "Purchases are temporarily unavailable."}</p>}
     {params.cancelled === "1" && <p role="status" className="mt-4 text-sm">Checkout cancelled. Your balance and packs are unchanged.</p>}
+    <HalloweenPackStore balance={coinBalance} signedIn={signedIn} available={isHalloweenPackAvailable()} />
     <BundleStore sets={sets.map((set) => set.name)} canBuy={canBuy} live={mode === "live"} signedIn={signedIn} />
+    <Link href="/daily-tasks" className="mt-6 block rounded-xl border border-amber-200 bg-amber-50 p-4 font-bold text-amber-900">Earn up to 8,500 free Coins every day with Daily Tasks →</Link>
     <section className="mt-10 border-t border-sky-200 pt-8">
       <h2 className="text-xl font-bold">Single packs with Coins</h2>
       <p className="mt-2 text-sm text-slate-600">Normal packs: {PACK_COST.toLocaleString()} Coins for 10 cards. Shiny packs: {SHINY_PACK_COST.toLocaleString()} Coins for 15 cards. {signedIn ? `Your balance: ${coinBalance.toLocaleString()} Coins.` : "Sign in to spend your Coins."}</p>

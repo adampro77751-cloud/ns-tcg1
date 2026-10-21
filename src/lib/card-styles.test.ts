@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Prisma } from "@/generated/prisma/client";
-const mocks = vi.hoisted(() => ({ find: vi.fn(), upsert: vi.fn(), styles: vi.fn() }));
-vi.mock("./prisma", () => ({ prisma: { userCardStyle: { findMany: mocks.styles } } }));
-import { grantPurchaseCardStyle, getVisibleInstanceArt } from "./card-styles";
+const mocks = vi.hoisted(() => ({ find: vi.fn(), upsert: vi.fn(), styles: vi.fn(), spriteStyles: vi.fn(), findOwned: vi.fn(), clear: vi.fn(), update: vi.fn(), transaction: vi.fn(), user: vi.fn() }));
+vi.mock("./prisma", () => ({ prisma: {
+  userCardStyle: { findMany: mocks.styles, findUnique: mocks.findOwned, updateMany: mocks.clear, update: mocks.update },
+  userSpriteStyle: { findMany: mocks.spriteStyles, findUnique: mocks.findOwned, updateMany: mocks.clear, update: mocks.update },
+  user: { update: mocks.user }, $transaction: mocks.transaction,
+} }));
+import { prisma } from "./prisma";
+import { grantPurchaseCardStyle, getVisibleInstanceArt, getEquippedCardArt, getSpriteInstanceArt, setOwnedArtStyle } from "./card-styles";
 import { GOLDEN_COINS_STYLE as style } from "./card-style-catalog";
 
 describe("exclusive Golden Coins card art", () => {
@@ -38,5 +43,30 @@ describe("exclusive Golden Coins card art", () => {
     ]);
     expect(art).toEqual({ "own-card": style.image });
     expect(mocks.styles).toHaveBeenCalledWith({ where: { userId: "owner", equipped: true }, select: { cardId: true, styleKey: true } });
+  });
+
+  it("applies Halloween card art using the server catalog", async () => {
+    mocks.styles.mockResolvedValue([{ cardId: "cupcake", styleKey: "cupcake-halloween-2026" }]);
+    expect((await getEquippedCardArt("owner")).get("cupcake")).toBe("/cards/styles/halloween-2026/cupcake.png");
+  });
+
+  it("keeps Sprite skins tied to their owner's instances", async () => {
+    mocks.spriteStyles.mockResolvedValue([{ userId: "owner", spriteId: "devil", styleKey: "devil-sprite-halloween-2026" }]);
+    const art = await getSpriteInstanceArt([{ id: "own", ownerId: "owner", spriteId: "devil" }, { id: "other", ownerId: "opponent", spriteId: "devil" }]);
+    expect(art.get("own")).toBe("/cards/styles/halloween-2026/devil-sprite.png");
+    expect(art.has("other")).toBe(false);
+  });
+
+  it("checks ownership before equipping and clears only competing styles for that card", async () => {
+    mocks.transaction.mockImplementation(fn => fn(prisma));
+    mocks.findOwned.mockResolvedValue({ cardId: "cupcake" });
+    await setOwnedArtStyle("owner", "cupcake-halloween-2026", true);
+    expect(mocks.clear).toHaveBeenCalledWith({ where: { userId: "owner", cardId: "cupcake", equipped: true }, data: { equipped: false } });
+    expect(mocks.update).toHaveBeenCalledWith({ where: { userId_styleKey: { userId: "owner", styleKey: "cupcake-halloween-2026" } }, data: { equipped: true } });
+    mocks.update.mockClear(); mocks.clear.mockClear();
+    mocks.findOwned.mockResolvedValue(null);
+    await expect(setOwnedArtStyle("owner", "devil-sprite-halloween-2026", true)).rejects.toThrow("not unlocked");
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.clear).not.toHaveBeenCalled();
   });
 });

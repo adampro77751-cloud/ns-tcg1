@@ -8,6 +8,7 @@ import { DRAFT_HAND, DRAFT_HEALTH } from "@/lib/draft-logic";
 export function simulateDraftBots(
   decks: [string[], string[]],
   cards: Map<string, EngineCard>,
+  difficulty?: number,
 ): 0 | 1 | null {
   let state = createGameState({
     matchId: "draft-simulation", formatId: "draft", startingHealth: DRAFT_HEALTH,
@@ -17,6 +18,7 @@ export function simulateDraftBots(
       { userId: null; spriteInstanceId: null; cardIds: string[] },
     ],
   });
+  if (difficulty !== undefined) state.botDifficulty = difficulty;
   for (let step = 0; step < 1000 && state.turnNumber <= 100 && state.phase !== "COMPLETE"; step++) {
     try {
       state = state.pendingCombat

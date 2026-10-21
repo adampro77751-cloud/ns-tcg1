@@ -117,6 +117,11 @@ describe("automatic pod matches", () => {
     expect([0, 1, null]).toContain(simulateDraftBots([Array<string>(20).fill(item.id), Array<string>(20).fill(item.id)], cards));
   });
 
+  it.each([0, 1, 2, 3, 4])("finishes ranked bot simulations at difficulty %i", (difficulty) => {
+    const cards = new Map([[item.id, item]]);
+    expect([0, 1]).toContain(simulateDraftBots([Array<string>(20).fill(item.id), Array<string>(20).fill(item.id)], cards, difficulty));
+  });
+
   it("terminates stalled bot games as draws", () => {
     const cards = new Map([[spell.id, spell]]);
     expect(simulateDraftBots([Array<string>(20).fill(spell.id), Array<string>(20).fill(spell.id)], cards)).toBeNull();

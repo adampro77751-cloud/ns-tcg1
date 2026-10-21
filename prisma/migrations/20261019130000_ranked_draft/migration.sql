@@ -1,0 +1,4 @@
+ALTER TABLE "User" ADD COLUMN "draftRankPoints" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "DraftPod" ADD COLUMN "ranked" BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN "rankPointsBefore" INTEGER,
+  ADD COLUMN "rankPointsAfter" INTEGER;

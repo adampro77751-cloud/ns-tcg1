@@ -8,6 +8,7 @@ import { RenameSpriteForm } from "./rename-sprite-form";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { LevelAbilities } from "@/components/sprite-level-abilities";
 import { SpriteArt } from "@/components/sprite-art";
+import { getEquippedSpriteArt } from "@/lib/card-styles";
 
 const RARITY_STYLES: Record<string, string> = {
   RARE: "bg-blue-100 text-blue-800",
@@ -56,6 +57,7 @@ export default async function SpriteInstancePage({
     where: { id: instanceId },
     select: {
       id: true,
+      spriteId: true,
       name: true,
       level: true,
       xp: true,
@@ -90,6 +92,8 @@ export default async function SpriteInstancePage({
   const isOwner = session?.user?.id === instance.ownerId;
   const progress = xpProgress(instance.xp);
   const stats = await getSpriteInstanceMatchStats(instance.id);
+  const art = await getEquippedSpriteArt(instance.ownerId);
+  const spriteImage = art.get(instance.spriteId) ?? instance.sprite.image;
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12">
@@ -114,7 +118,8 @@ export default async function SpriteInstancePage({
         </div>
       </div>
 
-      <SpriteArt image={instance.sprite.image} name={instance.sprite.name} large />
+      <SpriteArt image={spriteImage} name={instance.sprite.name} large />
+      {isOwner && <Link href="/collection#art-styles" className="mt-3 inline-block text-sm font-semibold text-violet-700 underline">Manage art styles →</Link>}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {instance.sprite.rarity && (
@@ -150,10 +155,10 @@ export default async function SpriteInstancePage({
           ` · ${progress.xpForNextLevel - progress.xpIntoLevel} XP to Level ${progress.nextLevel}`}
       </p>
 
-      {instance.sprite.image && (
+      {spriteImage && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={instance.sprite.image}
+          src={spriteImage}
           alt={instance.sprite.name}
           className="mt-6 max-h-80 rounded border border-sky-200 object-contain"
         />

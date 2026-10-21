@@ -15,6 +15,7 @@ export type DraftResult = {
 };
 
 export type DraftState = {
+  botDifficulty?: number;
   pack: number;
   pick: number;
   unopened: string[][][];
@@ -41,10 +42,10 @@ export function createDraftState(packs: string[][][]): DraftState {
 
 // Bots favour playable Items and stats, with seat-specific preferences so
 // the pod doesn't make identical choices. They only see their own pack.
-export function draftCardScore(card: EngineCard | undefined, seat: number): number {
+export function draftCardScore(card: EngineCard | undefined, seat: number, difficulty?: number): number {
   if (!card) return -1;
   const item = ["Item", "Commander", "Champion"].includes(card.type ?? "");
-  return (item ? 200 : 70) + (card.attack ?? 0) * (seat % 2 ? 1 : 0.8)
+  return (item ? 200 : 70) + (difficulty !== undefined && difficulty >= 2 ? (card.attack ?? 0) * 0.5 + (card.speed ?? 0) * 0.4 : 0) + (card.attack ?? 0) * (seat % 2 ? 1 : 0.8)
     + (card.defence ?? 0) * (seat % 2 ? 0.4 : 0.7) + (card.speed ?? 0) * 0.3;
 }
 
@@ -56,7 +57,7 @@ export function pickDraftCard(state: DraftState, index: number, cards: Map<strin
   for (let seat = 0; seat < DRAFT_SEATS; seat++) {
     const pack = next.packs[seat];
     const choice = seat === 0 ? index : pack.reduce((best, id, i) =>
-      draftCardScore(cards.get(id), seat) > draftCardScore(cards.get(pack[best]), seat) ? i : best, 0);
+      draftCardScore(cards.get(id), seat, state.botDifficulty) > draftCardScore(cards.get(pack[best]), seat, state.botDifficulty) ? i : best, 0);
     next.pools[seat].push(pack.splice(choice, 1)[0]);
   }
   next.pick++;
@@ -90,8 +91,8 @@ export function validateDraftDeck(pool: string[], deck: string[]): void {
   }
 }
 
-export function buildBotDraftDeck(pool: string[], cards: Map<string, EngineCard>, seat: number): string[] {
-  return [...pool].sort((a, b) => draftCardScore(cards.get(b), seat) - draftCardScore(cards.get(a), seat)).slice(0, DRAFT_MIN_DECK);
+export function buildBotDraftDeck(pool: string[], cards: Map<string, EngineCard>, seat: number, difficulty?: number): string[] {
+  return [...pool].sort((a, b) => draftCardScore(cards.get(b), seat, difficulty) - draftCardScore(cards.get(a), seat, difficulty)).slice(0, DRAFT_MIN_DECK);
 }
 
 // A six-seat round robin: three matches per round, five rounds, no byes

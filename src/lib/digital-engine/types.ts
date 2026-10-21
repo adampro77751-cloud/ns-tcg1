@@ -136,6 +136,8 @@ export type PendingCombat = {
 };
 
 export type DigitalGameState = {
+  /** Server-selected ranked draft difficulty, fixed for this pod. */
+  botDifficulty?: number;
   matchId: string;
   formatId: string;
   turnNumber: number;

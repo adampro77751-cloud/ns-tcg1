@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { countDraftCards, getDraftStandings, type DraftState } from "@/lib/draft-logic";
 import { DraftPickForm, DraftDeckForm, ResumeDraftForm } from "../draft-forms";
 import { getDraftPrize } from "@/lib/draft-rewards";
+import { getDraftRank } from "@/lib/draft-rank";
 
 export default async function DraftPodPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await requirePlayerPage();
@@ -32,6 +33,11 @@ export default async function DraftPodPage({ params }: { params: Promise<{ id: s
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10">
       <Link href="/play/digital/draft" className="text-sm text-blue-600">← Your drafts</Link>
+      {pod.ranked && pod.rankPointsBefore !== null && <section className="mt-4 rounded-xl border border-violet-300 bg-violet-50 p-4">
+        <p className="font-bold text-violet-800">Ranked draft · {getDraftRank(pod.rankPointsBefore).name} bots</p>
+        {pod.rankPointsAfter === null ? <p className="mt-1 text-sm text-slate-600">Started at {pod.rankPointsBefore} RP. Finish all five rounds to update your rank.</p>
+          : <p className="mt-1 text-sm font-semibold text-violet-800">{getDraftRank(pod.rankPointsAfter).name} · {pod.rankPointsBefore} → {pod.rankPointsAfter} RP ({pod.rankPointsAfter >= pod.rankPointsBefore ? "+" : ""}{pod.rankPointsAfter - pod.rankPointsBefore} RP)</p>}
+      </section>}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div><p className="text-xs font-bold uppercase tracking-widest text-violet-600">{pod.setName} · Six-player pod</p>
           <h1 className="mt-1 text-3xl font-black tracking-tight">

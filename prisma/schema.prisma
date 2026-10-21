@@ -77,6 +77,9 @@ model User {
   earnedPacks      EarnedPack[]
   purchases        ShopPurchase[]
   cardStyles       UserCardStyle[]
+  dailyTaskClaims  DailyTaskClaim[]
+  draftRankPoints  Int @default(0)
+  spriteStyles     UserSpriteStyle[]
 }
 
 // Public-facing profile data, separate from auth/account data so it is safe
@@ -145,6 +148,18 @@ enum CoinTransactionType {
   DRAFT_ENTRY
   DRAFT_REWARD
   STRIPE_PURCHASE
+  DAILY_TASK
+}
+
+model DailyTaskClaim {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day       String
+  taskKey   String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, day, taskKey])
 }
 
 // Append-only ledger — the actual source of truth for a player's Coins,
@@ -201,12 +216,16 @@ model PackOpening {
   coinsSpent Int
   cards      Json
   createdAt  DateTime @default(now())
+  requestKey String?
+  cardStyles UserCardStyle[]
+  spriteStyles UserSpriteStyle[]
 
   packCards PackOpeningCard[]
   spriteInstanceId String? @unique
   spriteInstance   SpriteInstance? @relation(fields: [spriteInstanceId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@unique([userId, requestKey])
 }
 
 model PackOpeningCard {
@@ -251,6 +270,7 @@ model Sprite {
   instances       SpriteInstance[]
   redemptionCodes RedemptionCode[]
   codeBatches     SpriteCodeBatch[]
+  styles          UserSpriteStyle[]
 }
 
 // A print/release edition of a Sprite (e.g. "1st Edition"). Kept as its own
@@ -819,6 +839,9 @@ model DraftPod {
   matches      DigitalMatch[]
   reward       Json?
   earnedPacks  EarnedPack[]
+  ranked           Boolean @default(false)
+  rankPointsBefore Int?
+  rankPointsAfter  Int?
 
   @@index([userId, createdAt])
 }
@@ -869,13 +892,33 @@ model UserCardStyle {
   cardId     String
   card       Card @relation(fields: [cardId], references: [id])
   styleKey   String
-  purchaseId String
-  purchase   ShopPurchase @relation(fields: [purchaseId], references: [id])
+  purchaseId String?
+  purchase   ShopPurchase? @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  packOpeningId String?
+  packOpening PackOpening? @relation(fields: [packOpeningId], references: [id])
+  quantity   Int @default(1)
   equipped   Boolean @default(true)
   unlockedAt DateTime @default(now())
 
   @@unique([userId, styleKey])
   @@index([userId, cardId])
+}
+
+model UserSpriteStyle {
+  id            String @id @default(cuid())
+  userId        String
+  user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  spriteId      String
+  sprite        Sprite @relation(fields: [spriteId], references: [id])
+  styleKey      String
+  packOpeningId String
+  packOpening   PackOpening @relation(fields: [packOpeningId], references: [id])
+  quantity      Int @default(1)
+  equipped      Boolean @default(true)
+  unlockedAt    DateTime @default(now())
+
+  @@unique([userId, styleKey])
+  @@index([userId, spriteId])
 }
 
 model DigitalMatchPlayer {

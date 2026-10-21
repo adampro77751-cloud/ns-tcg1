@@ -19,6 +19,12 @@ export function DraftEntryForm({ sets, balance }: { sets: { name: string }[]; ba
   const [state, action, pending] = useActionState(enterDraftAction, initial);
   return (
     <form action={action} className="mt-6 flex flex-col items-start gap-4">
+      <fieldset className="w-full"><legend className="text-sm font-semibold">Draft mode</legend>
+        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          <label className="rounded-xl border border-sky-200 bg-white p-4"><input type="radio" name="mode" value="casual" defaultChecked className="mr-2 accent-violet-600" /><strong>Casual bot draft</strong><span className="mt-1 block text-sm text-slate-600">Relaxed play with no rank changes.</span></label>
+          <label className="rounded-xl border border-violet-300 bg-white p-4"><input type="radio" name="mode" value="ranked" className="mr-2 accent-violet-600" /><strong>Ranked bot draft</strong><span className="mt-1 block text-sm text-slate-600">Climb the ladder against increasingly skilled bots.</span></label>
+        </div>
+      </fieldset>
       <label className="w-full text-sm font-semibold">Draft set
         <select name="setName" required className="mt-2 block w-full rounded-lg border border-sky-200 bg-white p-3">
           {sets.map((set) => <option key={set.name} value={set.name}>{set.name}</option>)}

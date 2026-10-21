@@ -5,20 +5,31 @@ import { listAvailableSets } from "@/lib/packs";
 import { getCoinBalance } from "@/lib/coins";
 import { DraftEntryForm } from "./draft-forms";
 import { DRAFT_PRIZES } from "@/lib/draft-rewards";
+import { DRAFT_RANKS, getDraftRank } from "@/lib/draft-rank";
 
 export default async function DraftHomePage() {
   const session = await requirePlayerPage();
-  const [sets, balance, pods] = await Promise.all([
+  const [sets, balance, pods, player] = await Promise.all([
     listAvailableSets(), getCoinBalance(session.user.id),
     prisma.draftPod.findMany({
       where: { userId: session.user.id }, orderBy: { createdAt: "desc" }, take: 20,
-      select: { id: true, setName: true, status: true, activeUserId: true },
+      select: { id: true, setName: true, status: true, activeUserId: true, ranked: true },
     }),
+    prisma.user.findUniqueOrThrow({ where: { id: session.user.id }, select: { draftRankPoints: true } }),
   ]);
+  const rank = getDraftRank(player.draftRankPoints);
+  const nextRank = DRAFT_RANKS.find(tier => tier.points > player.draftRankPoints);
   const active = pods.find((pod) => pod.activeUserId !== null);
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-12">
       <Link href="/play/digital" className="text-sm text-blue-600">← Digital Play</Link>
+      <section className="mt-6 rounded-2xl border border-violet-300 bg-violet-50 p-6">
+        <p className="text-sm font-bold text-violet-700">Your ranked draft standing</p>
+        <h2 className="mt-1 text-2xl font-black">{rank.name} · {player.draftRankPoints.toLocaleString()} RP</h2>
+        <p className="mt-2 text-sm text-slate-600">{nextRank ? `${nextRank.points - player.draftRankPoints} RP to ${nextRank.name}.` : "You reached the highest tier. Keep building your RP!"} {rank.description}</p>
+        <p className="mt-3 text-sm text-slate-600">Finish a ranked pod to update your rank: +60 RP per win, +10 per draw, −30 per loss, with a minimum of 0 RP. Difficulty is fixed when you enter. Entry fees and prizes are the same in both modes.</p>
+        <ol className="mt-4 flex flex-wrap gap-2">{DRAFT_RANKS.map(tier => <li key={tier.name} className={`rounded-full border px-3 py-1 text-xs font-bold ${rank.name === tier.name ? "border-violet-600 bg-violet-600 text-white" : "border-violet-200 bg-white text-violet-800"}`}>{tier.name} · {tier.points.toLocaleString()}+ RP</li>)}</ol>
+      </section>
       <div className="mt-4 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-sky-50 p-6 sm:p-8">
         <p className="text-xs font-bold uppercase tracking-widest text-violet-600">Six seats · One pod</p>
         <h1 className="mt-2 text-3xl font-black tracking-tight">Bot Draft</h1>
@@ -46,7 +57,7 @@ export default async function DraftHomePage() {
         <h2 className="font-bold">Your drafts</h2>
         <ul className="mt-3 space-y-2">{pods.map((pod) => <li key={pod.id}>
           <Link href={`/play/digital/draft/${pod.id}`} className="flex items-center justify-between rounded-lg border border-sky-200 px-4 py-3 text-sm hover:bg-sky-50">
-            <span>{pod.setName}</span><span className="text-slate-500">{pod.status.toLowerCase()}</span>
+            <span>{pod.setName} · {pod.ranked ? "Ranked" : "Casual"}</span><span className="text-slate-500">{pod.status.toLowerCase()}</span>
           </Link>
         </li>)}</ul>
       </section>}

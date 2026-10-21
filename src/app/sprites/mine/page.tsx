@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { MAX_SPRITE_LEVEL } from "@/lib/xp";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { SpriteArt } from "@/components/sprite-art";
+import { getEquippedSpriteArt } from "@/lib/card-styles";
 
 const RARITY_STYLES: Record<string, string> = {
   RARE: "bg-blue-100 text-blue-800",
@@ -20,6 +21,7 @@ export default async function MySpritesPage() {
     where: { ownerId: session.user.id },
     select: {
       id: true,
+      spriteId: true,
       name: true,
       level: true,
       obtainedAt: true,
@@ -28,6 +30,7 @@ export default async function MySpritesPage() {
     },
     orderBy: [{ sprite: { name: "asc" } }, { obtainedAt: "asc" }],
   });
+  const art = await getEquippedSpriteArt(session.user.id);
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-12">
@@ -41,6 +44,7 @@ export default async function MySpritesPage() {
           Redeem a code
         </Link>
       </div>
+      <Link href="/collection#art-styles" className="mt-3 inline-block text-sm font-semibold text-violet-700 underline">Manage your Sprite art styles →</Link>
 
       {instances.length === 0 ? (
         <p className="mt-6 text-sm text-slate-500">
@@ -54,7 +58,7 @@ export default async function MySpritesPage() {
                 href={`/sprites/mine/${instance.id}`}
                 className="flex flex-col gap-1 rounded border border-sky-200 bg-white p-3 hover:border-slate-400"
               >
-                <SpriteArt image={instance.sprite.image} name={instance.sprite.name} />
+                <SpriteArt image={art.get(instance.spriteId) ?? instance.sprite.image} name={instance.sprite.name} />
                 <span className="font-medium">{instance.name}</span>
                 <span className="text-xs text-slate-500">
                   {instance.sprite.name}

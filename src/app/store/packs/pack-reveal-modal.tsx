@@ -15,11 +15,13 @@ export function PackRevealModal({
   cards,
   sprite,
   onClose,
+  artStyles = false,
 }: {
   setName: string;
   cards: GeneratedPackCard[];
   sprite: PackSpriteReward | null;
   onClose: () => void;
+  artStyles?: boolean;
 }) {
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -69,14 +71,15 @@ export function PackRevealModal({
             {flipped ? "Tap to continue" : "Tap to reveal"}
           </p>
           <p className="mt-1 text-xs text-white/50">
-            {showingSprite ? "Bonus Sprite · Level 1" : `Card ${index + 1} of ${cards.length}`}
+            {showingSprite ? "Bonus Sprite · Level 1" : `${artStyles ? "Art style" : "Card"} ${index + 1} of ${cards.length}`}
           </p>
         </div>
       )}
 
       {done && (
         <div className="mt-6 flex w-full max-w-3xl flex-col items-center">
-          <h2 className="text-2xl font-extrabold text-white">{sprite ? "Your cards + a bonus Sprite!" : "Your new cards!"}</h2>
+          <h2 className="text-2xl font-extrabold text-white">{artStyles ? "Your Halloween art styles!" : sprite ? "Your cards + a bonus Sprite!" : "Your new cards!"}</h2>
+          {artStyles && <p className="mt-2 text-center text-sm text-purple-200">Saved permanently to your collection. New styles equip automatically; repeat pulls keep your current selection.</p>}
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
             {rewards.map((card, i) => {
               const meta = rarityMeta(card.rarity);
@@ -108,6 +111,7 @@ export function PackRevealModal({
             })}
           </div>
           {sprite && <Link href={`/sprites/mine/${sprite.instanceId}`} className="mt-4 text-sm font-bold text-amber-300 underline">View {sprite.name} in My Sprites →</Link>}
+          {artStyles && <Link href="/collection#art-styles" onClick={onClose} className="mt-4 text-sm font-bold text-amber-300 underline">Manage your art styles →</Link>}
           <button
             type="button"
             onClick={onClose}
