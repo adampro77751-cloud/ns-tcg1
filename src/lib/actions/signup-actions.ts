@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { signupSchema } from "@/lib/validation";
 import { signIn } from "@/auth";
 import { STARTER_COIN_BALANCE } from "@/lib/coins";
+import { getStarterDeckGrant } from "@/lib/starter-deck";
 
 export type SignupState = {
   error: string | null;
@@ -30,16 +31,15 @@ export async function signupAction(
   const passwordHash = await bcrypt.hash(password, 12);
 
   try {
+    const starterDeck = await getStarterDeckGrant();
     await prisma.user.create({
       data: {
+        ...starterDeck,
         username,
         email: normalizedEmail,
         passwordHash,
         profile: { create: {} },
-        // Starter Coins for every new account — granted here (not via
-        // coins.ts's creditCoins) only because this single nested create
-        // is already one atomic write; the ledger row it creates is the
-        // exact same shape creditCoins would produce.
+        // Account, starter deck, owned cards and Coins commit together.
         coinBalance: STARTER_COIN_BALANCE,
         coinTransactions: {
           create: { type: "STARTER_GRANT", amount: STARTER_COIN_BALANCE, detail: {} },

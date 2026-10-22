@@ -16,6 +16,10 @@ export default function SignupPage() {
     <div className="flex flex-1 items-center justify-center px-4 py-16">
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-bold tracking-tight">Create account</h1>
+        <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-slate-700">
+          <p className="font-bold text-sky-900">Your first deck is on us</p>
+          <p className="mt-1">Get a free 30-card starter deck, automatically saved in My Decks. All 30 cards are yours to keep and use in other decks.</p>
+        </div>
         <form action={formAction} className="mt-6 flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <label htmlFor="username" className="text-sm font-medium">
