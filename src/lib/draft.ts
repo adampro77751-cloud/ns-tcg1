@@ -10,6 +10,7 @@ import { createGameState } from "@/lib/digital-engine/engine";
 import type { DigitalGameState, EngineCard } from "@/lib/digital-engine/types";
 import { simulateDraftBots } from "@/lib/draft-simulation";
 import { getDraftRank, getDraftRankResult } from "@/lib/draft-rank";
+import { grantRankedRewards } from "@/lib/ranked-rewards";
 import {
   createDraftState, pickDraftCard, buildBotDraftDeck, validateDraftDeck,
   countDraftCards, getDraftPairings, DRAFT_PACKS, DRAFT_SEATS,
@@ -185,6 +186,7 @@ export async function advanceDraftAfterMatch(matchId: string) {
         const rank = getDraftRankResult(pod.rankPointsBefore, state.results);
         await tx.user.update({ where: { id: pod.userId }, data: { draftRankPoints: rank.after } });
         await tx.draftPod.update({ where: { id: pod.id }, data: { rankPointsAfter: rank.after } });
+        await grantRankedRewards(tx, pod.userId, Math.max(rank.before, rank.after));
       }
       const prize = getDraftPrize(state.results);
       await tx.draftPod.update({ where: { id: pod.id }, data: { reward: prize } });

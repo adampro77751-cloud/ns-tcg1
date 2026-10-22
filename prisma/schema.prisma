@@ -79,6 +79,7 @@ model User {
   cardStyles       UserCardStyle[]
   dailyTaskClaims  DailyTaskClaim[]
   draftRankPoints  Int @default(0)
+  draftRewardPoints Int @default(0)
   spriteStyles     UserSpriteStyle[]
 }
 

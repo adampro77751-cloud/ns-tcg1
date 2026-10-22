@@ -4,9 +4,23 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePlayerAction } from "@/lib/player-access";
 import { prisma } from "@/lib/prisma";
+import { grantRankedRewards } from "@/lib/ranked-rewards";
 import { enterDraft, pickCardInDraft, startDraftMatches, advanceDraftAfterMatch } from "@/lib/draft";
 
 export type DraftFormState = { error: string | null };
+
+export async function claimRankedRewardsAction(): Promise<void> {
+  const session = await requirePlayerAction();
+  await prisma.$transaction(async tx => {
+    const player = await tx.user.findUniqueOrThrow({ where: { id: session.user.id }, select: { draftRankPoints: true } });
+    const history = await tx.draftPod.aggregate({
+      where: { userId: session.user.id, ranked: true },
+      _max: { rankPointsBefore: true, rankPointsAfter: true },
+    });
+    await grantRankedRewards(tx, session.user.id, Math.max(player.draftRankPoints, history._max.rankPointsBefore ?? 0, history._max.rankPointsAfter ?? 0));
+  });
+  revalidatePath("/", "layout");
+}
 
 function errorState(error: unknown): DraftFormState {
   return { error: error instanceof Error ? error.message : "Couldn't update your draft. Try again." };

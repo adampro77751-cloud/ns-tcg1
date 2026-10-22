@@ -28,7 +28,12 @@ export const HALLOWEEN_STYLES = ([
   return { ...style, key: `${slug}-halloween-2026`, name: "Halloween 2026", image: `/cards/styles/halloween-2026/${slug}.png` };
 });
 
-export const ART_STYLES = [GOLDEN_COINS_STYLE, ...HALLOWEEN_STYLES];
+export const DIAMOND_RANK_STYLE = {
+  kind: "card", key: "the-final-bell-diamond-rank", cardSlug: "the-final-bell",
+  name: "Diamond Rank", image: "/cards/styles/the-final-bell-diamond-rank.png",
+} as const;
+
+export const ART_STYLES = [GOLDEN_COINS_STYLE, DIAMOND_RANK_STYLE, ...HALLOWEEN_STYLES];
 export function isHalloweenPackAvailable(now = new Date()) {
   return now.getTime() < new Date(HALLOWEEN_PACK_END).getTime();
 }

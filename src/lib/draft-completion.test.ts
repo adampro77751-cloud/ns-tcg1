@@ -7,6 +7,8 @@ vi.mock("@/lib/prisma", () => ({ prisma: {
   digitalMatch: { findUnique: mocks.match }, $transaction: mocks.transaction,
 } }));
 vi.mock("@/lib/coins", () => ({ debitCoins: vi.fn(), creditCoins: mocks.credit }));
+vi.mock("@/lib/ranked-rewards", () => ({ grantRankedRewards: vi.fn() }));
+import { grantRankedRewards } from "./ranked-rewards";
 import { advanceDraftAfterMatch } from "./draft";
 import { getDraftPairings } from "./draft-logic";
 
@@ -42,6 +44,7 @@ describe("draft completion payouts", () => {
     await advanceDraftAfterMatch("final-match");
     expect(mocks.rank).toHaveBeenCalledWith({ where: { id: "player" }, data: { draftRankPoints: 490 } });
     expect(mocks.reward).toHaveBeenCalledWith({ where: { id: "pod" }, data: { rankPointsAfter: 490 } });
+    expect(grantRankedRewards).toHaveBeenCalledWith(expect.anything(), "player", 490);
     mocks.pod.mockResolvedValue({ status: "COMPLETED" });
     await advanceDraftAfterMatch("final-match");
     expect(mocks.rank).toHaveBeenCalledTimes(1);

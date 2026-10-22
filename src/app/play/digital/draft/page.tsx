@@ -1,4 +1,8 @@
 import Link from "next/link";
+import Image from "next/image";
+import { RANKED_REWARDS } from "@/lib/ranked-reward-catalog";
+import { DIAMOND_RANK_STYLE } from "@/lib/card-style-catalog";
+import { claimRankedRewardsAction } from "@/lib/actions/draft-actions";
 import { requirePlayerPage } from "@/lib/player-access";
 import { prisma } from "@/lib/prisma";
 import { listAvailableSets } from "@/lib/packs";
@@ -15,7 +19,7 @@ export default async function DraftHomePage() {
       where: { userId: session.user.id }, orderBy: { createdAt: "desc" }, take: 20,
       select: { id: true, setName: true, status: true, activeUserId: true, ranked: true },
     }),
-    prisma.user.findUniqueOrThrow({ where: { id: session.user.id }, select: { draftRankPoints: true } }),
+    prisma.user.findUniqueOrThrow({ where: { id: session.user.id }, select: { draftRankPoints: true, draftRewardPoints: true } }),
   ]);
   const rank = getDraftRank(player.draftRankPoints);
   const nextRank = DRAFT_RANKS.find(tier => tier.points > player.draftRankPoints);
@@ -29,6 +33,23 @@ export default async function DraftHomePage() {
         <p className="mt-2 text-sm text-slate-600">{nextRank ? `${nextRank.points - player.draftRankPoints} RP to ${nextRank.name}.` : "You reached the highest tier. Keep building your RP!"} {rank.description}</p>
         <p className="mt-3 text-sm text-slate-600">Finish a ranked pod to update your rank: +60 RP per win, +10 per draw, −30 per loss, with a minimum of 0 RP. Difficulty is fixed when you enter. Entry fees and prizes are the same in both modes.</p>
         <ol className="mt-4 flex flex-wrap gap-2">{DRAFT_RANKS.map(tier => <li key={tier.name} className={`rounded-full border px-3 py-1 text-xs font-bold ${rank.name === tier.name ? "border-violet-600 bg-violet-600 text-white" : "border-violet-200 bg-white text-violet-800"}`}>{tier.name} · {tier.points.toLocaleString()}+ RP</li>)}</ol>
+      </section>
+      <section className="mt-6 overflow-hidden rounded-2xl border border-cyan-300 bg-gradient-to-br from-slate-950 to-blue-950 p-6 text-white">
+        <p className="text-xs font-bold uppercase tracking-widest text-cyan-300">Rank up. Cash in.</p>
+        <h2 className="mt-2 text-2xl font-black">185,000 Coins on the road to Diamond</h2>
+        <p className="mt-2 text-sm text-sky-100">First-time rank rewards stack on top of draft prizes and arrive automatically when you finish a ranked pod. Each tier pays once, and rewards stay yours if your rank drops.</p>
+        <div className="mt-5 grid gap-6 sm:grid-cols-[1fr_160px]">
+          <div>
+            <ul className="space-y-3">{RANKED_REWARDS.map(reward => <li key={reward.name} className="rounded-xl border border-white/20 bg-white/5 p-3">
+              <div className="flex justify-between gap-2"><strong>{reward.name} · {reward.points.toLocaleString()} RP</strong><span className="text-xs text-cyan-200">{player.draftRewardPoints >= reward.points ? "Reward received" : "First-time reward"}</span></div>
+              <p className="mt-1 text-lg font-bold text-amber-300">{reward.coins.toLocaleString()} Coins</p>
+              {reward.name === "Diamond" && <p className="mt-1 text-sm text-sky-100">+ The Final Bell · Diamond Rank permanent card style</p>}
+            </li>)}</ul>
+            <form action={claimRankedRewardsAction} className="mt-4"><button className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">Collect any past rank rewards</button></form>
+            <p className="mt-2 text-xs text-sky-200">Already climbed before rewards arrived? Your previous highest rank counts too.</p>
+          </div>
+          <div><Image src={DIAMOND_RANK_STYLE.image} alt="The Final Bell exclusive Diamond Rank card style" width={212} height={297} className="w-full rounded-xl" /><p className="mt-3 text-center text-sm font-bold text-cyan-200">Exclusive to Diamond</p><p className="mt-1 text-center text-xs text-sky-100">Unlocks permanently and equips automatically. Manage it in Collection.</p></div>
+        </div>
       </section>
       <div className="mt-4 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-sky-50 p-6 sm:p-8">
         <p className="text-xs font-bold uppercase tracking-widest text-violet-600">Six seats · One pod</p>
