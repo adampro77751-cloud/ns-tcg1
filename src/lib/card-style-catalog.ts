@@ -35,7 +35,12 @@ export const DIAMOND_RANK_STYLE = {
   name: "Diamond Rank", image: "/cards/styles/the-final-bell-diamond-rank.png",
 } as const;
 
-export const ART_STYLES = [GOLDEN_COINS_STYLE, DIAMOND_RANK_STYLE, ...HALLOWEEN_STYLES, ...CHRISTMAS_STYLES];
+export const PIXEL_NINJA_STYLE = {
+  kind: "sprite", spriteSlug: "ninja-sprite", key: "ninja-sprite-pixel",
+  name: "Pixel Ninja", image: "/sprites/styles/ninja-sprite-pixel.png",
+} as const;
+
+export const ART_STYLES = [GOLDEN_COINS_STYLE, DIAMOND_RANK_STYLE, PIXEL_NINJA_STYLE, ...HALLOWEEN_STYLES, ...CHRISTMAS_STYLES];
 export function isHalloweenPackAvailable(now = new Date()) {
   return now.getTime() < new Date(HALLOWEEN_PACK_END).getTime();
 }

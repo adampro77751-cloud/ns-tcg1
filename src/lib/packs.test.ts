@@ -13,10 +13,48 @@ vi.mock("@/lib/prisma", () => ({ prisma: {
 vi.mock("@/lib/coins", () => ({ debitCoins: mocks.debit, PACK_COST: 1000 }));
 vi.mock("@/lib/collection", () => ({ grantCards: mocks.grant }));
 import crypto from "node:crypto";
-import { buyAndOpenPack, openEarnedPack, rollPackSprite } from "./packs";
+import { buyAndOpenPack, openEarnedPack, rollPackSprite, rollPixelNinjaSkin } from "./packs";
 
 describe("pack sprite rewards", () => {
   beforeEach(() => { vi.restoreAllMocks(); vi.resetAllMocks(); });
+
+  it("unlocks Pixel Ninja for exactly 25 percent of Ninja pulls only", () => {
+    const results = Array.from({ length: 100 }, (_, roll) => rollPixelNinjaSkin("ninja-sprite", () => roll));
+    expect(results.filter(Boolean)).toHaveLength(25);
+    expect(results[24]).toBe(true);
+    expect(results[25]).toBe(false);
+    expect(rollPixelNinjaSkin("fire-sprite", () => { throw new Error("should not roll"); })).toBe(false);
+  });
+
+  it.each([24, 25])("always grants Ninja and conditionally grants the skin at roll %i", async roll => {
+    mocks.findCards.mockResolvedValue([{ id: "card", name: "Card", rarity: "Common", image: null, type: null }]);
+    mocks.findSprites.mockResolvedValue([{ id: "ninja", slug: "ninja-sprite", name: "Ninja Sprite", image: "/sprites/ninja-sprite.png", rarity: "RARE" }]);
+    // First 100-sided roll awards the bonus Sprite; the second rolls its skin.
+    let rolls = 0;
+    vi.spyOn(crypto, "randomInt").mockImplementation(((min: number, max: number) => max === 100 ? (rolls++ === 0 ? 0 : roll) : 0) as typeof crypto.randomInt);
+    mocks.opening.mockResolvedValue({ id: "opening" });
+    mocks.edition.mockResolvedValue({ id: "edition" });
+    mocks.instance.mockResolvedValue({ id: "owned-ninja" });
+    const style = vi.fn();
+    const tx = { packOpening: { create: mocks.opening }, edition: { upsert: mocks.edition }, spriteInstance: { create: mocks.instance }, userSpriteStyle: { upsert: style } };
+    mocks.transaction.mockImplementation(callback => callback(tx));
+    const result = await buyAndOpenPack("player", "Set One");
+    expect(result.sprite?.instanceId).toBe("owned-ninja");
+    expect(mocks.instance).toHaveBeenCalledTimes(1);
+    if (roll < 25) {
+      expect(style).toHaveBeenCalledWith({
+        where: { userId_styleKey: { userId: "player", styleKey: "ninja-sprite-pixel" } },
+        create: { userId: "player", spriteId: "ninja", styleKey: "ninja-sprite-pixel", packOpeningId: "opening", equipped: false },
+        update: { quantity: { increment: 1 } },
+      });
+      expect(result.sprite?.skin?.name).toBe("Pixel Ninja");
+      expect(result.sprite?.image).toBe("/sprites/styles/ninja-sprite-pixel.png");
+    } else {
+      expect(style).not.toHaveBeenCalled();
+      expect(result.sprite?.skin).toBeUndefined();
+      expect(result.sprite?.image).toBe("/sprites/ninja-sprite.png");
+    }
+  });
 
   it("wins for exactly 10 of the 100 possible rolls", () => {
     const wins = Array.from({ length: 100 }, (_, roll) =>

@@ -52,7 +52,7 @@ export function PackRevealModal({
 
       {!done && current && (
         <div className="mt-6 flex flex-col items-center">
-          {showingSprite && <p className="mb-3 rounded-full bg-amber-400 px-4 py-2 text-sm font-extrabold text-slate-950">Bonus Sprite! Added to My Sprites</p>}
+          {showingSprite && <p className="mb-3 rounded-full bg-amber-400 px-4 py-2 text-sm font-extrabold text-slate-950">{sprite?.skin ? `Bonus Sprite + ${sprite.skin.name} skin!` : "Bonus Sprite! Added to My Sprites"}</p>}
           <button
             type="button"
             onClick={reveal}
@@ -118,6 +118,7 @@ export function PackRevealModal({
             })}
           </div>
           {sprite && <Link href={`/sprites/mine/${sprite.instanceId}`} className="mt-4 text-sm font-bold text-amber-300 underline">View {sprite.name} in My Sprites →</Link>}
+          {sprite?.skin && <Link href="/collection#art-styles" className="mt-3 text-sm font-bold text-amber-300 underline">{sprite.skin.name} skin unlocked! Equip it in Collection →</Link>}
           {artStyles && <Link href="/collection#art-styles" onClick={onClose} className="mt-4 text-sm font-bold text-amber-300 underline">Manage your art styles →</Link>}
           <button
             type="button"
