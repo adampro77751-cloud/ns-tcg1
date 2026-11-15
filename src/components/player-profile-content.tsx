@@ -96,7 +96,7 @@ export function PlayerProfileContent({
       <section aria-label="Ranked draft standing" className="mt-6 rounded-xl border border-violet-200 bg-violet-50 p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Ranked draft</p>
         <p className="mt-1 text-xl font-bold text-violet-900">
-          {draftRank.name} <span className="text-sm font-medium text-violet-700">· {user.draftRankPoints.toLocaleString()} RP</span>
+          {draftRank.name} <span className="text-sm font-medium text-violet-700">&middot; {user.draftRankPoints.toLocaleString()} RP</span>
         </p>
       </section>
 
