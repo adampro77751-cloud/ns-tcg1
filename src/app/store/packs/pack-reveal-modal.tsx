@@ -73,6 +73,13 @@ export function PackRevealModal({
           <p className="mt-1 text-xs text-white/50">
             {showingSprite ? "Bonus Sprite · Level 1" : `${artStyles ? "Art style" : "Card"} ${index + 1} of ${cards.length}`}
           </p>
+          <button
+            type="button"
+            onClick={() => setIndex(rewards.length)}
+            className="mt-4 rounded-full border border-white/40 px-5 py-2 text-sm font-semibold text-white transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+          >
+            Skip to all rewards
+          </button>
         </div>
       )}
 
