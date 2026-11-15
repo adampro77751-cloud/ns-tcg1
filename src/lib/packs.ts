@@ -10,7 +10,7 @@ import { grantCards } from "@/lib/collection";
 import { normalizeRarity, type CanonicalRarity } from "@/lib/card-rarity";
 import { PACK_SIZE, SHINY_PACK_COST } from "@/lib/economy-constants";
 import { PACK_SPRITE_CHANCE_PERCENT } from "@/lib/economy-constants";
-import { PIXEL_NINJA_STYLE, SHADOW_NINJA_STYLE } from "@/lib/card-style-catalog";
+import { PIXEL_NINJA_STYLE, SHADOW_NINJA_STYLE, PIXEL_COSMIC_STYLE, PIXEL_ANGEL_STYLE } from "@/lib/card-style-catalog";
 import { SPRITE_IMAGES } from "@/lib/sprite-images";
 import { generateShinyPackFromPool } from "@/lib/shiny-packs";
 
@@ -160,6 +160,12 @@ export function rollNinjaSkin(slug: string, randomInt: (max: number) => number =
   return roll < 25 ? PIXEL_NINJA_STYLE : roll < 30 ? SHADOW_NINJA_STYLE : null;
 }
 
+export function rollSpriteSkin(slug: string, randomInt: (max: number) => number = secureRandomIndex) {
+  if (slug === "ninja-sprite") return rollNinjaSkin(slug, randomInt);
+  const style = slug === "cosmic-sprite" ? PIXEL_COSMIC_STYLE : slug === "angel-sprite" ? PIXEL_ANGEL_STYLE : null;
+  return style && randomInt(100) < 25 ? style : null;
+}
+
 // Exactly one roll per purchased pack, independent of its ten card slots.
 // The optional random source lets tests cover boundaries without changing
 // the secure randomness used by real purchases.
@@ -237,7 +243,7 @@ async function openPack(userId: string, setName: string, earnedPackId?: string, 
       const rarity: CanonicalRarity | null = bonus.rarity === "RARE" ? "Rare"
         : bonus.rarity === "MYTHIC" ? "Mythic" : bonus.rarity === "LEGENDARY" ? "Legendary" : null;
       sprite = { id: bonus.id, instanceId: instance.id, name: bonus.name, image: bonus.image, rarity, type: "Sprite" };
-      const skin = rollNinjaSkin(bonus.slug);
+      const skin = rollSpriteSkin(bonus.slug);
       if (skin) {
         await tx.userSpriteStyle.upsert({
           where: { userId_styleKey: { userId, styleKey: skin.key } },

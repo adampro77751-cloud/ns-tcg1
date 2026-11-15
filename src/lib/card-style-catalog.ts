@@ -45,7 +45,17 @@ export const SHADOW_NINJA_STYLE = {
   name: "Shadow Ninja", image: "/sprites/styles/ninja-sprite-shadow.png",
 } as const;
 
-export const ART_STYLES = [GOLDEN_COINS_STYLE, DIAMOND_RANK_STYLE, PIXEL_NINJA_STYLE, SHADOW_NINJA_STYLE, ...HALLOWEEN_STYLES, ...CHRISTMAS_STYLES];
+export const PIXEL_COSMIC_STYLE = {
+  kind: "sprite", spriteSlug: "cosmic-sprite", key: "cosmic-sprite-pixel",
+  name: "Pixel Cosmic", image: "/sprites/styles/cosmic-sprite-pixel.png",
+} as const;
+
+export const PIXEL_ANGEL_STYLE = {
+  kind: "sprite", spriteSlug: "angel-sprite", key: "angel-sprite-pixel",
+  name: "Pixel Angel", image: "/sprites/styles/angel-sprite-pixel.png",
+} as const;
+
+export const ART_STYLES = [GOLDEN_COINS_STYLE, DIAMOND_RANK_STYLE, PIXEL_NINJA_STYLE, SHADOW_NINJA_STYLE, PIXEL_COSMIC_STYLE, PIXEL_ANGEL_STYLE, ...HALLOWEEN_STYLES, ...CHRISTMAS_STYLES];
 export function isHalloweenPackAvailable(now = new Date()) {
   return now.getTime() < new Date(HALLOWEEN_PACK_END).getTime();
 }

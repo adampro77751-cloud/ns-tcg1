@@ -13,7 +13,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: {
 vi.mock("@/lib/coins", () => ({ debitCoins: mocks.debit, PACK_COST: 1000 }));
 vi.mock("@/lib/collection", () => ({ grantCards: mocks.grant }));
 import crypto from "node:crypto";
-import { buyAndOpenPack, openEarnedPack, rollPackSprite, rollNinjaSkin } from "./packs";
+import { buyAndOpenPack, openEarnedPack, rollPackSprite, rollNinjaSkin, rollSpriteSkin } from "./packs";
 
 describe("pack sprite rewards", () => {
   beforeEach(() => { vi.restoreAllMocks(); vi.resetAllMocks(); });
@@ -56,6 +56,41 @@ describe("pack sprite rewards", () => {
       expect(style).not.toHaveBeenCalled();
       expect(result.sprite?.skin).toBeUndefined();
       expect(result.sprite?.image).toBe("/sprites/ninja-sprite.png");
+    }
+  });
+
+  it.each(["cosmic-sprite", "angel-sprite"])("awards a matching pixel skin in exactly 25 of 100 %s outcomes", slug => {
+    const results = Array.from({ length: 100 }, (_, roll) => rollSpriteSkin(slug, () => roll));
+    expect(results.filter(Boolean)).toHaveLength(25);
+    expect(results[24]?.key).toBe(`${slug}-pixel`);
+    expect(results[25]).toBeNull();
+    expect(results.filter(Boolean).every(style => style?.spriteSlug === slug)).toBe(true);
+  });
+
+  it.each([
+    ["cosmic-sprite", 24], ["cosmic-sprite", 25], ["angel-sprite", 24], ["angel-sprite", 25],
+  ] as const)("grants %s with its matching skin only on a winning roll (%i)", async (slug, roll) => {
+    mocks.findCards.mockResolvedValue([{ id: "card", name: "Card", rarity: "Common", image: null, type: null }]);
+    mocks.findSprites.mockResolvedValue([{ id: slug, slug, name: slug, image: `/sprites/${slug}.png`, rarity: "RARE" }]);
+    let rolls = 0;
+    vi.spyOn(crypto, "randomInt").mockImplementation(((min: number, max: number) => max === 100 ? (rolls++ === 0 ? 0 : roll) : 0) as typeof crypto.randomInt);
+    mocks.opening.mockResolvedValue({ id: "opening" });
+    mocks.edition.mockResolvedValue({ id: "edition" });
+    mocks.instance.mockResolvedValue({ id: "owned-sprite" });
+    const style = vi.fn();
+    const tx = { packOpening: { create: mocks.opening }, edition: { upsert: mocks.edition }, spriteInstance: { create: mocks.instance }, userSpriteStyle: { upsert: style } };
+    mocks.transaction.mockImplementation(callback => callback(tx));
+    const result = await buyAndOpenPack("player", "Set One");
+    expect(result.sprite?.id).toBe(slug);
+    expect(result.sprite?.instanceId).toBe("owned-sprite");
+    if (roll < 25) {
+      expect(style).toHaveBeenCalledWith(expect.objectContaining({ create: {
+        userId: "player", spriteId: slug, styleKey: `${slug}-pixel`, packOpeningId: "opening", equipped: false,
+      } }));
+      expect(result.sprite?.skin?.key).toBe(`${slug}-pixel`);
+    } else {
+      expect(style).not.toHaveBeenCalled();
+      expect(result.sprite?.skin).toBeUndefined();
     }
   });
 
