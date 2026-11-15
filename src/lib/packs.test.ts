@@ -13,20 +13,20 @@ vi.mock("@/lib/prisma", () => ({ prisma: {
 vi.mock("@/lib/coins", () => ({ debitCoins: mocks.debit, PACK_COST: 1000 }));
 vi.mock("@/lib/collection", () => ({ grantCards: mocks.grant }));
 import crypto from "node:crypto";
-import { buyAndOpenPack, openEarnedPack, rollPackSprite, rollPixelNinjaSkin } from "./packs";
+import { buyAndOpenPack, openEarnedPack, rollPackSprite, rollNinjaSkin } from "./packs";
 
 describe("pack sprite rewards", () => {
   beforeEach(() => { vi.restoreAllMocks(); vi.resetAllMocks(); });
 
-  it("unlocks Pixel Ninja for exactly 25 percent of Ninja pulls only", () => {
-    const results = Array.from({ length: 100 }, (_, roll) => rollPixelNinjaSkin("ninja-sprite", () => roll));
-    expect(results.filter(Boolean)).toHaveLength(25);
-    expect(results[24]).toBe(true);
-    expect(results[25]).toBe(false);
-    expect(rollPixelNinjaSkin("fire-sprite", () => { throw new Error("should not roll"); })).toBe(false);
+  it("awards exactly 25 Pixel and 5 Shadow skins per 100 Ninja outcomes", () => {
+    const results = Array.from({ length: 100 }, (_, roll) => rollNinjaSkin("ninja-sprite", () => roll));
+    expect(results.filter(style => style?.key === "ninja-sprite-pixel")).toHaveLength(25);
+    expect(results.filter(style => style?.key === "ninja-sprite-shadow")).toHaveLength(5);
+    expect(results.filter(style => style === null)).toHaveLength(70);
+    expect(rollNinjaSkin("fire-sprite", () => { throw new Error("should not roll"); })).toBeNull();
   });
 
-  it.each([24, 25])("always grants Ninja and conditionally grants the skin at roll %i", async roll => {
+  it.each([0, 24, 25, 29, 30, 99])("always grants Ninja and conditionally grants the skin at roll %i", async roll => {
     mocks.findCards.mockResolvedValue([{ id: "card", name: "Card", rarity: "Common", image: null, type: null }]);
     mocks.findSprites.mockResolvedValue([{ id: "ninja", slug: "ninja-sprite", name: "Ninja Sprite", image: "/sprites/ninja-sprite.png", rarity: "RARE" }]);
     // First 100-sided roll awards the bonus Sprite; the second rolls its skin.
@@ -41,14 +41,17 @@ describe("pack sprite rewards", () => {
     const result = await buyAndOpenPack("player", "Set One");
     expect(result.sprite?.instanceId).toBe("owned-ninja");
     expect(mocks.instance).toHaveBeenCalledTimes(1);
-    if (roll < 25) {
+    if (roll < 30) {
+      const key = roll < 25 ? "ninja-sprite-pixel" : "ninja-sprite-shadow";
+      const name = roll < 25 ? "Pixel Ninja" : "Shadow Ninja";
+      const image = `/sprites/styles/${key}.png`;
       expect(style).toHaveBeenCalledWith({
-        where: { userId_styleKey: { userId: "player", styleKey: "ninja-sprite-pixel" } },
-        create: { userId: "player", spriteId: "ninja", styleKey: "ninja-sprite-pixel", packOpeningId: "opening", equipped: false },
+        where: { userId_styleKey: { userId: "player", styleKey: key } },
+        create: { userId: "player", spriteId: "ninja", styleKey: key, packOpeningId: "opening", equipped: false },
         update: { quantity: { increment: 1 } },
       });
-      expect(result.sprite?.skin?.name).toBe("Pixel Ninja");
-      expect(result.sprite?.image).toBe("/sprites/styles/ninja-sprite-pixel.png");
+      expect(result.sprite?.skin?.name).toBe(name);
+      expect(result.sprite?.image).toBe(image);
     } else {
       expect(style).not.toHaveBeenCalled();
       expect(result.sprite?.skin).toBeUndefined();

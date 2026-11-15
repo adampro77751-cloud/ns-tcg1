@@ -10,7 +10,7 @@ import { grantCards } from "@/lib/collection";
 import { normalizeRarity, type CanonicalRarity } from "@/lib/card-rarity";
 import { PACK_SIZE, SHINY_PACK_COST } from "@/lib/economy-constants";
 import { PACK_SPRITE_CHANCE_PERCENT } from "@/lib/economy-constants";
-import { PIXEL_NINJA_STYLE } from "@/lib/card-style-catalog";
+import { PIXEL_NINJA_STYLE, SHADOW_NINJA_STYLE } from "@/lib/card-style-catalog";
 import { SPRITE_IMAGES } from "@/lib/sprite-images";
 import { generateShinyPackFromPool } from "@/lib/shiny-packs";
 
@@ -152,9 +152,12 @@ export type PackOpeningResult = {
 
 export type PackSpriteReward = GeneratedPackCard & { instanceId: string; skin?: { key: string; name: string; image: string } };
 
-// Conditional on actually pulling Ninja Sprite: exactly 25 of 100 rolls win.
-export function rollPixelNinjaSkin(slug: string, randomInt: (max: number) => number = secureRandomIndex) {
-  return slug === PIXEL_NINJA_STYLE.spriteSlug && randomInt(100) < 25;
+// Conditional on pulling Ninja: 25% Pixel, 5% Shadow, 70% no skin.
+// A single secure roll keeps the skin outcomes mutually exclusive.
+export function rollNinjaSkin(slug: string, randomInt: (max: number) => number = secureRandomIndex) {
+  if (slug !== "ninja-sprite") return null;
+  const roll = randomInt(100);
+  return roll < 25 ? PIXEL_NINJA_STYLE : roll < 30 ? SHADOW_NINJA_STYLE : null;
 }
 
 // Exactly one roll per purchased pack, independent of its ten card slots.
@@ -234,14 +237,15 @@ async function openPack(userId: string, setName: string, earnedPackId?: string, 
       const rarity: CanonicalRarity | null = bonus.rarity === "RARE" ? "Rare"
         : bonus.rarity === "MYTHIC" ? "Mythic" : bonus.rarity === "LEGENDARY" ? "Legendary" : null;
       sprite = { id: bonus.id, instanceId: instance.id, name: bonus.name, image: bonus.image, rarity, type: "Sprite" };
-      if (rollPixelNinjaSkin(bonus.slug)) {
+      const skin = rollNinjaSkin(bonus.slug);
+      if (skin) {
         await tx.userSpriteStyle.upsert({
-          where: { userId_styleKey: { userId, styleKey: PIXEL_NINJA_STYLE.key } },
-          create: { userId, spriteId: bonus.id, styleKey: PIXEL_NINJA_STYLE.key, packOpeningId: opening.id, equipped: false },
+          where: { userId_styleKey: { userId, styleKey: skin.key } },
+          create: { userId, spriteId: bonus.id, styleKey: skin.key, packOpeningId: opening.id, equipped: false },
           update: { quantity: { increment: 1 } },
         });
-        sprite = { ...sprite, image: PIXEL_NINJA_STYLE.image,
-          skin: { key: PIXEL_NINJA_STYLE.key, name: PIXEL_NINJA_STYLE.name, image: PIXEL_NINJA_STYLE.image } };
+        sprite = { ...sprite, image: skin.image,
+          skin: { key: skin.key, name: skin.name, image: skin.image } };
       }
     }
     return { openingId: opening.id, cards, sprite };
