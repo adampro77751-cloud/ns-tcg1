@@ -78,6 +78,7 @@ model User {
   purchases        ShopPurchase[]
   cardStyles       UserCardStyle[]
   dailyTaskClaims  DailyTaskClaim[]
+  christmasClaims  ChristmasClaim[]
   draftRankPoints  Int @default(0)
   draftRewardPoints Int @default(0)
   spriteStyles     UserSpriteStyle[]
@@ -150,6 +151,7 @@ enum CoinTransactionType {
   DRAFT_REWARD
   STRIPE_PURCHASE
   DAILY_TASK
+  CHRISTMAS_REWARD
 }
 
 model DailyTaskClaim {
@@ -967,4 +969,15 @@ model DigitalMatchPlayerDeckCard {
   @@unique([digitalMatchPlayerId, cardId])
   @@index([digitalMatchPlayerId])
   @@index([cardId])
+}
+
+model ChristmasClaim {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  year Int
+  day Int
+  createdAt DateTime @default(now())
+
+  @@unique([userId, year, day])
 }

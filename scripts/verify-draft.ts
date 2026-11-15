@@ -16,7 +16,7 @@ const ranked = process.argv.includes("--ranked");
 async function main() {
   const suffix = randomUUID();
   const user = await prisma.user.create({ data: {
-    username: `draft-test-${suffix}`, email: `draft-test-${suffix}@example.invalid`, passwordHash: 'no-login-test-account', draftRankPoints: 500,
+    username: `draft-test-${suffix}`, email: `draft-test-${suffix}@example.invalid`, passwordHash: 'no-login-test-account', draftRankPoints: 2400, draftRewardPoints: 1000,
   }, select: { id: true } });
   userId = user.id;
   const cards = await prisma.card.findMany({ where: { set: { not: null }, type: 'Item' }, select: { set: true }, take: 1 });
@@ -40,7 +40,7 @@ async function main() {
   assert.equal(pod.status, 'BUILDING');
   const state = pod.state as unknown as DraftState;
   assert.equal(pod.ranked, ranked);
-  assert.equal(pod.rankPointsBefore, ranked ? 500 : null);
+  assert.equal(pod.rankPointsBefore, ranked ? 2400 : null);
   assert.equal(state.botDifficulty, ranked ? 2 : undefined);
   assert.equal(state.pools[0].length, 30);
   const copies = await prisma.userCard.aggregate({ where: { userId: user.id }, _sum: { quantity: true } });
@@ -63,8 +63,8 @@ async function main() {
   const complete = await prisma.draftPod.findUniqueOrThrow({ where: { id: podId } });
   assert.equal(complete.status, 'COMPLETED');
   assert.equal(complete.activeUserId, null);
-  assert.equal(complete.rankPointsAfter, ranked ? 350 : null);
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).draftRankPoints, ranked ? 350 : 500);
+  assert.equal(complete.rankPointsAfter, ranked ? 2250 : null);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).draftRankPoints, ranked ? 2250 : 2400);
   assert.equal((complete.state as unknown as DraftState).results.length, 15);
   assert.equal(opponents.size, 5);
   assert.equal(await prisma.digitalMatch.count({ where: { draftPodId: podId } }), 5);

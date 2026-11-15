@@ -2961,3 +2961,44 @@ describe("target viability", () => {
     expect(result.players[1].battlefield.some((c) => c.instanceId === "strong-item")).toBe(true);
   });
 });
+
+
+describe("Christmas day finale spell", () => {
+  const finale: EngineCard = { id: "christmas", slug: "christmas-2026-finale", type: "Spell", attack: null, defence: null, speed: null };
+  const pool = new Map([...cardsById, [finale.id, finale] as const]);
+
+  it("discards the remaining hand, revives all own Items and gains 100 health", () => {
+    const state = newGame();
+    const template = state.players[0].hand[0];
+    const instance = (instanceId: string, cardId: string) => ({ ...template, instanceId, cardId });
+    state.players[0].hand = [instance("spell", finale.id), instance("hand-item", ITEM_STRONG.id), instance("hand-spell", SPELL_A.id)];
+    state.players[0].discard = [instance("discard-item", ITEM_WEAK.id), instance("discard-spell", SPELL_A.id)];
+    state.players[1].discard = [instance("opponent-item", ITEM_STRONG.id)];
+    const before = structuredClone(state);
+    const next = playSpell(state, 0, "spell", pool);
+    expect(next.players[0].hand).toHaveLength(0);
+    expect(next.players[0].battlefield.map(c => c.instanceId).sort()).toEqual(["discard-item", "hand-item"]);
+    expect(next.players[0].discard.map(c => c.instanceId).sort()).toEqual(["discard-spell", "hand-spell", "spell"]);
+    expect(next.players[0].health).toBe(600);
+    expect(next.players[1]).toEqual(before.players[1]);
+    expect(state).toEqual(before);
+  });
+
+  it("works with an empty remaining hand and no discarded Items", () => {
+    const state = newGame();
+    state.players[0].hand = [{ ...state.players[0].hand[0], instanceId: "spell", cardId: finale.id }];
+    const next = playSpell(state, 0, "spell", pool);
+    expect(next.players[0].health).toBe(600);
+    expect(next.players[0].battlefield).toHaveLength(0);
+    expect(next.players[0].discard.map(c => c.cardId)).toEqual([finale.id]);
+  });
+
+  it("does not pay the discard cost when casting is illegal", () => {
+    const state = newGame();
+    state.players[0].hand = [{ ...state.players[0].hand[0], instanceId: "spell", cardId: finale.id }, ...state.players[0].hand];
+    state.players[0].spellsPlayedThisTurn = 1;
+    const before = structuredClone(state);
+    expect(() => playSpell(state, 0, "spell", pool)).toThrow(IllegalActionError);
+    expect(state).toEqual(before);
+  });
+});

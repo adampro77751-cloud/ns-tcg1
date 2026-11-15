@@ -41,6 +41,7 @@ export type EffectType =
   | "EXTRA_ITEM_PLAY"
   | "EXTRA_SPELL_PLAY"
   | "ALLOW_SPELLS_FROM_DISCARD"
+  | "RETURN_ALL_ITEMS_FROM_DISCARD"
   | "RETURN_ALL_SPELLS_FROM_DISCARD"
   | "CAST_FROM_DISCARD"
   | "MUTUAL_DISCARD_ITEM"
@@ -153,6 +154,10 @@ export type AbilitySpec = {
 // ability — it still works through its base Attack/Defence/Speed if it's
 // an Item, same as before.
 export const CARD_ABILITIES: Record<string, AbilitySpec[]> = {
+  "christmas-2026-finale": [{ trigger: "ON_PLAY", effects: [
+    { type: "RETURN_ALL_ITEMS_FROM_DISCARD" },
+    { type: "GAIN_HEALTH", amount: 100, target: "SELF" },
+  ] }],
   // ---- Simple draw/return effects, no targeting ----
   "cricket-ball": [{ trigger: "ON_PLAY", effects: [{ type: "DRAW", amount: 1, target: "SELF" }] }],
   "cricket-bowl": [{ trigger: "ON_PLAY", effects: [{ type: "DRAW", amount: 1, target: "SELF" }] }],

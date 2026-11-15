@@ -9,7 +9,7 @@ import { listAvailableSets } from "@/lib/packs";
 import { getCoinBalance } from "@/lib/coins";
 import { DraftEntryForm } from "./draft-forms";
 import { DRAFT_PRIZES } from "@/lib/draft-rewards";
-import { DRAFT_RANKS, getDraftRank } from "@/lib/draft-rank";
+import { getVisibleDraftRanks, getDraftRank } from "@/lib/draft-rank";
 
 export default async function DraftHomePage() {
   const session = await requirePlayerPage();
@@ -22,7 +22,8 @@ export default async function DraftHomePage() {
     prisma.user.findUniqueOrThrow({ where: { id: session.user.id }, select: { draftRankPoints: true, draftRewardPoints: true } }),
   ]);
   const rank = getDraftRank(player.draftRankPoints);
-  const nextRank = DRAFT_RANKS.find(tier => tier.points > player.draftRankPoints);
+  const visibleRanks = getVisibleDraftRanks(player.draftRankPoints);
+  const nextRank = visibleRanks.find(tier => tier.points > player.draftRankPoints);
   const active = pods.find((pod) => pod.activeUserId !== null);
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-12">
@@ -32,7 +33,7 @@ export default async function DraftHomePage() {
         <h2 className="mt-1 text-2xl font-black">{rank.name} · {player.draftRankPoints.toLocaleString()} RP</h2>
         <p className="mt-2 text-sm text-slate-600">{nextRank ? `${nextRank.points - player.draftRankPoints} RP to ${nextRank.name}.` : "You reached the highest tier. Keep building your RP!"} {rank.description}</p>
         <p className="mt-3 text-sm text-slate-600">Finish a ranked pod to update your rank: +60 RP per win, +10 per draw, −30 per loss, with a minimum of 0 RP. Difficulty is fixed when you enter. Entry fees and prizes are the same in both modes.</p>
-        <ol className="mt-4 flex flex-wrap gap-2">{DRAFT_RANKS.map(tier => <li key={tier.name} className={`rounded-full border px-3 py-1 text-xs font-bold ${rank.name === tier.name ? "border-violet-600 bg-violet-600 text-white" : "border-violet-200 bg-white text-violet-800"}`}>{tier.name} · {tier.points.toLocaleString()}+ RP</li>)}</ol>
+        <ol className="mt-4 flex flex-wrap gap-2">{visibleRanks.map(tier => <li key={tier.name} className={`rounded-full border px-3 py-1 text-xs font-bold ${rank.name === tier.name ? "border-violet-600 bg-violet-600 text-white" : "border-violet-200 bg-white text-violet-800"}`}>{tier.name} · {tier.points.toLocaleString()}+ RP</li>)}</ol>
       </section>
       <section className="mt-6 overflow-hidden rounded-2xl border border-cyan-300 bg-gradient-to-br from-slate-950 to-blue-950 p-6 text-white">
         <p className="text-xs font-bold uppercase tracking-widest text-cyan-300">Rank up. Cash in.</p>

@@ -1,3 +1,5 @@
+import { CHRISTMAS_STYLES } from "./christmas-catalog";
+
 export const GOLDEN_COINS_STYLE = {
   kind: "card",
   key: "cathedral-pergrines-golden-coins",
@@ -33,7 +35,7 @@ export const DIAMOND_RANK_STYLE = {
   name: "Diamond Rank", image: "/cards/styles/the-final-bell-diamond-rank.png",
 } as const;
 
-export const ART_STYLES = [GOLDEN_COINS_STYLE, DIAMOND_RANK_STYLE, ...HALLOWEEN_STYLES];
+export const ART_STYLES = [GOLDEN_COINS_STYLE, DIAMOND_RANK_STYLE, ...HALLOWEEN_STYLES, ...CHRISTMAS_STYLES];
 export function isHalloweenPackAvailable(now = new Date()) {
   return now.getTime() < new Date(HALLOWEEN_PACK_END).getTime();
 }

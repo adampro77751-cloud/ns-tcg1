@@ -19,23 +19,23 @@ function wallet() {
 }
 beforeEach(() => vi.clearAllMocks());
 it("does not pay below Silver", async () => {
-  await grantRankedRewards(wallet().tx, "player", 199);
+  await grantRankedRewards(wallet().tx, "player", 999);
   expect(mocks.credit).not.toHaveBeenCalled();
 });
 it("pays every crossed tier once, including simultaneous retries", async () => {
   const { tx, styles } = wallet();
-  await Promise.all([grantRankedRewards(tx, "player", 1400), grantRankedRewards(tx, "player", 1400)]);
+  await Promise.all([grantRankedRewards(tx, "player", 6000), grantRankedRewards(tx, "player", 6000)]);
   expect(mocks.credit).toHaveBeenCalledTimes(4);
   expect(mocks.credit.mock.calls.reduce((sum, call) => sum + call[2], 0)).toBe(185000);
   expect(styles.upsert).toHaveBeenCalledTimes(1);
   expect(styles.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: { userId: "player", cardId: "bell", styleKey: "the-final-bell-diamond-rank" } }));
-  await grantRankedRewards(tx, "player", 500);
-  await grantRankedRewards(tx, "player", 1500);
+  await grantRankedRewards(tx, "player", 1000);
+  await grantRankedRewards(tx, "player", 6100);
   expect(mocks.credit).toHaveBeenCalledTimes(4);
 });
 it("awards Silver at its exact threshold without granting Diamond art", async () => {
   const { tx, styles } = wallet();
-  await grantRankedRewards(tx, "player", 200);
+  await grantRankedRewards(tx, "player", 1000);
   expect(mocks.credit).toHaveBeenCalledWith(tx, "player", 10000, "DRAFT_REWARD", { rankedMilestone: "Silver" });
   expect(styles.upsert).not.toHaveBeenCalled();
 });

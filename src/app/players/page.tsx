@@ -42,6 +42,7 @@ export default async function PlayersPage({
           username: true,
           role: true,
           createdAt: true,
+          draftRankPoints: true,
           profile: { select: { displayName: true, bio: true } },
           decks: {
             select: {

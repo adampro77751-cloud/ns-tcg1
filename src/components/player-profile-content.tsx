@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getDraftRank } from "@/lib/draft-rank";
 import { MAX_SPRITE_LEVEL } from "@/lib/xp";
 import { SPECIAL_USERNAME_TAGS } from "@/lib/special-tags";
 import type { PlayerStats, RecentMatch } from "@/lib/stats";
@@ -22,6 +23,7 @@ export type PlayerProfileUser = {
   username: string;
   role: string;
   createdAt: Date;
+  draftRankPoints: number;
   profile: { displayName: string | null; bio: string | null } | null;
   decks: {
     id: string;
@@ -54,6 +56,7 @@ export function PlayerProfileContent({
   recentMatches: RecentMatch[];
   isOwnProfile: boolean;
 }) {
+  const draftRank = getDraftRank(user.draftRankPoints);
   const highestLevelSprite = spriteInstances[0] ?? null;
 
   return (
@@ -89,6 +92,13 @@ export function PlayerProfileContent({
           </a>
         )}
       </div>
+
+      <section aria-label="Ranked draft standing" className="mt-6 rounded-xl border border-violet-200 bg-violet-50 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Ranked draft</p>
+        <p className="mt-1 text-xl font-bold text-violet-900">
+          {draftRank.name} <span className="text-sm font-medium text-violet-700">· {user.draftRankPoints.toLocaleString()} RP</span>
+        </p>
+      </section>
 
       {user.profile?.bio && (
         <p className="mt-4 max-w-xl text-sm text-slate-700">{user.profile.bio}</p>

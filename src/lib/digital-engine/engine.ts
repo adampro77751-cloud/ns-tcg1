@@ -1086,6 +1086,18 @@ function applyEffect(
       return { state, resolvedTarget: null };
     }
 
+    case "RETURN_ALL_ITEMS_FROM_DISCARD": {
+      const items = state.players[controllerIndex].discard.filter(c => cardsById.get(c.cardId)?.type === "Item");
+      for (const instance of items) {
+        // Earlier entry triggers may already have moved another candidate.
+        if (!findCardInstance(state.players[controllerIndex].discard, instance.instanceId)) continue;
+        state = updatePlayer(state, controllerIndex, p => ({ ...p, discard: removeFromZone(p.discard, instance.instanceId) }));
+        state = enterBattlefield(state, controllerIndex, instance, cardsById, depth, undefined, ctx.spritesById);
+        if (state.phase === "COMPLETE") break;
+      }
+      return { state, resolvedTarget: null };
+    }
+
     case "RETURN_ALL_SPELLS_FROM_DISCARD": {
       const discard = state.players[controllerIndex].discard;
       const spells = discard.filter((c) => cardsById.get(c.cardId)?.type === "Spell");
@@ -1603,6 +1615,18 @@ function playCard(
     ...state,
     log: [...state.log, `${describePlayer(playerIndex)} played ${expectedType} (${card.id}).`],
   };
+
+  if (expectedType === "Spell" && card.slug === "christmas-2026-finale") {
+    // Pay the printed casting cost after removing the spell itself, before resolution.
+    // Move the whole hand at once so discard triggers cannot cause newly drawn cards
+    // to be discarded as part of the original cost.
+    const discardedHand = [...state.players[playerIndex].hand];
+    state = updatePlayer(state, playerIndex, p => ({ ...p, hand: [], discard: [...p.discard, ...discardedHand] }));
+    for (const instance of discardedHand) {
+      state = afterMoveToDiscard(state, playerIndex, instance, cardsById, 0, spritesById);
+      if (state.phase === "COMPLETE") return state;
+    }
+  }
 
   if (expectedType === "Item") {
     state = enterBattlefield(state, playerIndex, inHand, cardsById, 0, chosenTarget, spritesById);

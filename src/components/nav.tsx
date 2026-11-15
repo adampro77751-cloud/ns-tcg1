@@ -10,6 +10,7 @@ const links = [
   { href: "/decks", label: "Decks" },
   { href: "/collection", label: "Collection" },
   { href: "/daily-tasks", label: "Daily Tasks" },
+  { href: "/christmas", label: "Christmas" },
   { href: "/store/packs", label: "Your Packs" },
   { href: "/store", label: "Store" },
   { href: "/sprites", label: "Sprites" },
